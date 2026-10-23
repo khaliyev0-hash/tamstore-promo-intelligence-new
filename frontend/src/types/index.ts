@@ -301,6 +301,7 @@ export interface PromoUpliftItem {
   daily_baseline: number;
   baseline_sale: number;
   full_baseline_sale?: number;
+  normal_sale?: number;
   promo_sale: number;
   last_day_sale: number;
   uplift_qty: number;
@@ -314,6 +315,7 @@ export interface PromoUpliftSummary {
   total_skus: number;
   total_normal_14d: number;
   total_baseline: number;
+  total_normal_sale?: number;
   total_promo_sale: number;
   total_last_day_sale: number;
   total_uplift_qty: number;

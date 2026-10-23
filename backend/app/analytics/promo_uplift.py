@@ -18,12 +18,14 @@ logger = logging.getLogger(__name__)
 
 # In-memory caches to make repeated requests instantaneous
 _UPLIFT_PRE_PROMO_CACHE: Dict[Tuple[str, str, Tuple[str, ...], Tuple[str, ...]], Dict[str, float]] = {}
+_UPLIFT_CAMPAIGN_NORMAL_CACHE: Dict[Tuple[str, str, Tuple[str, ...], Tuple[str, ...]], Dict[str, float]] = {}
 _UPLIFT_LAST_DAY_CACHE: Dict[Tuple[str, Tuple[str, ...], Tuple[str, ...]], Dict[str, float]] = {}
 
 
 def clear_uplift_caches():
-    """Clears pre-promo and last-day sales caches to force recalculation with updated baseline logic."""
+    """Clears pre-promo, campaign normal, and last-day sales caches to force recalculation."""
     _UPLIFT_PRE_PROMO_CACHE.clear()
+    _UPLIFT_CAMPAIGN_NORMAL_CACHE.clear()
     _UPLIFT_LAST_DAY_CACHE.clear()
 
 
@@ -231,6 +233,98 @@ def fetch_last_day_insert_sales(
     return result
 
 
+def fetch_campaign_normal_sales(
+    beg_date: str,
+    end_date: str,
+    item_codes: List[str],
+    store_codes: Optional[Set[str]] = None
+) -> Dict[str, float]:
+    """
+    Fetches the normal (non-insert / regular) sales during the active promo period [beg_date, end_date].
+    Formula: SUM(MIQDARI) - SUM(INSERT_MIQDARI).
+    Returns dict mapping clean item_code -> campaign_normal_sales.
+    """
+    beg_str = str(beg_date)[:10]
+    end_str = str(end_date)[:10]
+    clean_items = sorted(list(set(normalize_item_code(c) for c in item_codes if normalize_item_code(c))))
+    clean_stores = tuple(sorted(list(str(s) for s in store_codes))) if store_codes else ()
+    cache_key = (beg_str, end_str, tuple(clean_items), clean_stores)
+    if cache_key in _UPLIFT_CAMPAIGN_NORMAL_CACHE:
+        return _UPLIFT_CAMPAIGN_NORMAL_CACHE[cache_key]
+
+    result: Dict[str, float] = {code: 0.0 for code in clean_items}
+
+    # 1. Try Live MSSQL Database via fnc_TS_SALES_REPORT_FOR_PLANNING
+    db_success = False
+    try:
+        where_clauses = ["MEHSUL_KODU IS NOT NULL"]
+        params: List[Any] = [beg_str, end_str]
+
+        if clean_items:
+            placeholders = ",".join(["?"] * len(clean_items))
+            where_clauses.append(f"MEHSUL_KODU IN ({placeholders})")
+            params.extend(clean_items)
+
+        if store_codes:
+            store_params = []
+            for s in store_codes:
+                store_params.append(s)
+                if s.isdigit():
+                    store_params.append(int(s))
+            s_placeholders = ",".join(["?"] * len(store_params))
+            where_clauses.append(f"MAGAZA IN ({s_placeholders})")
+            params.extend(store_params)
+
+        where_str = " WHERE " + " AND ".join(where_clauses)
+        query = f"""
+            SELECT 
+                CAST(MEHSUL_KODU AS VARCHAR(50)) AS item_code,
+                SUM(CAST(MIQDARI AS FLOAT)) - SUM(CAST(INSERT_MIQDARI AS FLOAT)) AS normal_sales_qty
+            FROM dbo.fnc_TS_SALES_REPORT_FOR_PLANNING(?, ?)
+            {where_str}
+            GROUP BY MEHSUL_KODU
+        """
+
+        with db_connection_scope() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            for row in cursor.fetchall():
+                raw_code, qty = row
+                c_norm = normalize_item_code(raw_code)
+                if c_norm and c_norm in result:
+                    val = float(qty) if qty is not None else 0.0
+                    result[c_norm] = max(0.0, round(val, 2))
+        db_success = True
+    except Exception as e:
+        logger.warning("Campaign normal sales DB query failed (%s), attempting Parquet fallback", e)
+
+    # 2. Fallback to sales_snapshot.parquet
+    if not db_success and os.path.exists(SALES_PARQUET) and clean_items:
+        try:
+            import pyarrow.parquet as pq
+            filters = [
+                ('sale_date', '>=', beg_str),
+                ('sale_date', '<=', end_str),
+                ('item_code', 'in', clean_items)
+            ]
+            tbl = pq.read_table(SALES_PARQUET, columns=['store_code', 'item_code', 'sales_qty'], filters=filters)
+            if tbl.num_rows > 0:
+                p_df = tbl.to_pandas()
+                if store_codes:
+                    p_df['_st'] = p_df['store_code'].astype(str).map(lambda s: normalize_store_code(s) or s)
+                    p_df = p_df[p_df['_st'].isin(store_codes)]
+                p_df['_it'] = p_df['item_code'].astype(str).map(lambda c: normalize_item_code(c) or c)
+                agg = p_df.groupby('_it')['sales_qty'].sum()
+                for c_norm, val in agg.items():
+                    if c_norm in result:
+                        result[c_norm] = max(0.0, round(float(val), 2))
+        except Exception as p_err:
+            logger.warning("Campaign normal sales Parquet fallback error: %s", p_err)
+
+    _UPLIFT_CAMPAIGN_NORMAL_CACHE[cache_key] = result
+    return result
+
+
 def compute_promo_uplift(
     fact_df: pd.DataFrame,
     beg_date: Optional[str] = None,
@@ -268,6 +362,7 @@ def compute_promo_uplift(
                 "total_skus": 0,
                 "total_normal_14d": 0.0,
                 "total_baseline": 0.0,
+                "total_normal_sale": 0.0,
                 "total_promo_sale": 0.0,
                 "total_last_day_sale": 0.0,
                 "total_uplift_qty": 0.0,
@@ -352,7 +447,12 @@ def compute_promo_uplift(
             beg_date_clean, unique_items, store_codes=active_stores
         )
 
-    # 2. Fetch latest active promo day sales map
+    # 2. Fetch campaign normal (non-insert) sales map during active promo period
+    campaign_normal_map = fetch_campaign_normal_sales(
+        beg_date_clean, latest_sales_date, unique_items, store_codes=active_stores
+    )
+
+    # 3. Fetch latest active promo day sales map
     if custom_last_day_map is not None:
         last_day_map = custom_last_day_map
     else:
@@ -394,6 +494,9 @@ def compute_promo_uplift(
         # Last day sales
         last_day_sale = float(last_day_map.get(clean_code, 0.0))
 
+        # Campaign normal (non-insert) sales during active promo period
+        normal_sale = float(campaign_normal_map.get(clean_code, 0.0))
+
         # Uplift calculations
         uplift_qty = round(promo_sale - baseline_sale, 2)
 
@@ -432,6 +535,7 @@ def compute_promo_uplift(
             "daily_baseline": round(daily_baseline, 2),
             "baseline_sale": round(baseline_sale, 1),
             "full_baseline_sale": round(full_baseline_sale, 1),
+            "normal_sale": round(normal_sale, 1),
             "promo_sale": round(promo_sale, 1),
             "last_day_sale": round(last_day_sale, 1),
             "uplift_qty": round(uplift_qty, 1),
@@ -445,6 +549,7 @@ def compute_promo_uplift(
     total_skus = len(items)
     tot_normal_14d = round(sum(r["normal_14d_sale"] for r in items), 1)
     tot_baseline = round(sum(r["baseline_sale"] for r in items), 1)
+    tot_normal_sale = round(sum(r["normal_sale"] for r in items), 1)
     tot_promo = round(sum(r["promo_sale"] for r in items), 1)
     tot_last_day = round(sum(r["last_day_sale"] for r in items), 1)
     tot_uplift_qty = round(tot_promo - tot_baseline, 1)
@@ -467,6 +572,7 @@ def compute_promo_uplift(
         "total_skus": total_skus,
         "total_normal_14d": tot_normal_14d,
         "total_baseline": tot_baseline,
+        "total_normal_sale": tot_normal_sale,
         "total_promo_sale": tot_promo,
         "total_last_day_sale": tot_last_day,
         "total_uplift_qty": tot_uplift_qty,
