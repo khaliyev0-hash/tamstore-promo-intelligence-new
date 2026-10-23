@@ -639,12 +639,12 @@ export const PromoUpliftPage: React.FC = () => {
                 <SortableHeader label="Kateqoriya" field="category" currentSortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="left" />
                 <th className="p-3 text-center font-bold">Növ</th>
                 <SortableHeader label="Mağaza" field="store_count" currentSortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="center" />
-                <SortableHeader label="14G Normal Baza" field="normal_14d_sale" currentSortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="right" />
-                <SortableHeader label={apiData?.is_ongoing ? `Baza (${apiData.elapsed_days}G)` : "Gözlənilən Baza"} field="baseline_sale" currentSortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="right" />
-                <SortableHeader label="Promo Satış" field="promo_sale" currentSortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="right" />
-                <SortableHeader label="Son Gün" field="last_day_sale" currentSortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="right" />
-                <SortableHeader label="Əlavə Satış" field="uplift_qty" currentSortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="right" />
-                <SortableHeader label="Uplift %" field="uplift_pct" currentSortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="right" />
+                <SortableHeader label="14G Normal Baza" field="normal_14d_sale" currentSortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="right" title="Promodan əvvəlki 14 günün normal satış həcmi (ardıcıl promolarda faktiki dövriyyə bazası)" />
+                <SortableHeader label={apiData?.is_ongoing ? `Baza (${apiData.elapsed_days}G)` : "Gözlənilən Baza"} field="baseline_sale" currentSortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="right" title="Cari promo günlərinə mütənasib gözlənilən normal baza satışı" />
+                <SortableHeader label="Promo Satış" field="promo_sale" currentSortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="right" title="Aksiya dövründə mağazalarda qeydə alınan real faktiki satış" />
+                <SortableHeader label="Son Gün" field="last_day_sale" currentSortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="right" title="Aksiyanın son günündəki satış miqdarı" />
+                <SortableHeader label="Əlavə Satış" field="uplift_qty" currentSortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="right" title="Aksiyanın gətirdiyi artım: Promo Satış - Gözlənilən Baza" />
+                <SortableHeader label="Uplift %" field="uplift_pct" currentSortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="right" title="Satış artım faizi: (Promo Satış - Baza) / Baza * 100%" />
                 <th className="p-3 text-center font-bold">Status</th>
               </tr>
             </thead>
