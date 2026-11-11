@@ -70,10 +70,12 @@ def build_product_store_matrix(fact_df: pd.DataFrame, timeline_df: pd.DataFrame 
         statuses = np.where((fcs > 0) & (vals >= 120.0), "EXCELLENT", statuses)
         statuses = np.where((stocks <= 0.0001) & (fcs > sales) & (fcs > 0), "STOCKOUT_LIMITED", statuses)
 
+    order_statuses_arr = df['STATUS'].astype(str).to_numpy() if 'STATUS' in df.columns else np.full(len(df), "Aktiv", dtype=object)
+
     # Convert to cell dicts fast
     cells = [
-        {"store": st, "code": cd, "value": v, "status": s}
-        for st, cd, v, s in zip(stores_arr, codes_arr, vals, statuses)
+        {"store": st, "code": cd, "value": v, "status": s, "order_status": os_val}
+        for st, cd, v, s, os_val in zip(stores_arr, codes_arr, vals, statuses, order_statuses_arr)
     ]
 
     return ProductStoreMatrix(

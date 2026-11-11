@@ -206,22 +206,39 @@ export const GroupAnalysisPage: React.FC<Props> = ({ dimension }) => {
     setLoading(true);
     try {
       let url = `${API_BASE}/group-analysis?dimension=${dimension}`;
-      if (filters.selectedArea && filters.selectedArea !== 'ALL') {
+      if (filters.selectedAreas && filters.selectedAreas.length > 0) {
+        filters.selectedAreas.forEach((a) => { url += `&area=${encodeURIComponent(a)}`; });
+      } else if (filters.selectedArea && filters.selectedArea !== 'ALL') {
         url += `&area=${encodeURIComponent(filters.selectedArea)}`;
       }
-      if (filters.selectedSubArea && filters.selectedSubArea !== 'ALL') {
+
+      if (filters.selectedSubAreas && filters.selectedSubAreas.length > 0) {
+        filters.selectedSubAreas.forEach((sa) => { url += `&sub_area=${encodeURIComponent(sa)}`; });
+      } else if (filters.selectedSubArea && filters.selectedSubArea !== 'ALL') {
         url += `&sub_area=${encodeURIComponent(filters.selectedSubArea)}`;
       }
-      if (filters.selectedStore) {
+
+      if (filters.selectedStores && filters.selectedStores.length > 0) {
+        filters.selectedStores.forEach((st) => { url += `&store=${encodeURIComponent(st)}`; });
+      } else if (filters.selectedStore) {
         url += `&store=${encodeURIComponent(filters.selectedStore)}`;
       }
-      if (filters.selectedCategory && filters.selectedCategory !== 'ALL') {
+
+      if (filters.selectedCategories && filters.selectedCategories.length > 0) {
+        filters.selectedCategories.forEach((cat) => { url += `&category=${encodeURIComponent(cat)}`; });
+      } else if (filters.selectedCategory && filters.selectedCategory !== 'ALL') {
         url += `&category=${encodeURIComponent(filters.selectedCategory)}`;
       }
-      if (filters.selectedFamily && filters.selectedFamily !== 'ALL') {
+
+      if (filters.selectedFamilies && filters.selectedFamilies.length > 0) {
+        filters.selectedFamilies.forEach((f) => { url += `&family=${encodeURIComponent(f)}`; });
+      } else if (filters.selectedFamily && filters.selectedFamily !== 'ALL') {
         url += `&family=${encodeURIComponent(filters.selectedFamily)}`;
       }
-      if (filters.selectedProduct) {
+
+      if (filters.selectedProducts && filters.selectedProducts.length > 0) {
+        filters.selectedProducts.forEach((p) => { url += `&product=${encodeURIComponent(p)}`; });
+      } else if (filters.selectedProduct) {
         url += `&product=${encodeURIComponent(filters.selectedProduct)}`;
       }
       const res = await fetch(url);
@@ -242,11 +259,17 @@ export const GroupAnalysisPage: React.FC<Props> = ({ dimension }) => {
     dimension,
     activeCampaignId,
     filters.selectedArea,
+    filters.selectedAreas,
     filters.selectedSubArea,
+    filters.selectedSubAreas,
     filters.selectedStore,
+    filters.selectedStores,
     filters.selectedCategory,
+    filters.selectedCategories,
     filters.selectedFamily,
-    filters.selectedProduct
+    filters.selectedFamilies,
+    filters.selectedProduct,
+    filters.selectedProducts
   ]);
 
   // Fetch drill-down details when a node is selected (supports path of 1 to 3 segments)
@@ -268,12 +291,41 @@ export const GroupAnalysisPage: React.FC<Props> = ({ dimension }) => {
         } else {
           url += `&name=${encodeURIComponent(selectedNode.name)}`;
         }
-        if (filters.selectedArea && filters.selectedArea !== 'ALL') url += `&area=${encodeURIComponent(filters.selectedArea)}`;
-        if (filters.selectedSubArea && filters.selectedSubArea !== 'ALL') url += `&sub_area=${encodeURIComponent(filters.selectedSubArea)}`;
-        if (filters.selectedStore) url += `&store=${encodeURIComponent(filters.selectedStore)}`;
-        if (filters.selectedCategory && filters.selectedCategory !== 'ALL') url += `&category=${encodeURIComponent(filters.selectedCategory)}`;
-        if (filters.selectedFamily && filters.selectedFamily !== 'ALL') url += `&family=${encodeURIComponent(filters.selectedFamily)}`;
-        if (filters.selectedProduct) url += `&product=${encodeURIComponent(filters.selectedProduct)}`;
+        if (filters.selectedAreas && filters.selectedAreas.length > 0) {
+          filters.selectedAreas.forEach((a) => { url += `&area=${encodeURIComponent(a)}`; });
+        } else if (filters.selectedArea && filters.selectedArea !== 'ALL') {
+          url += `&area=${encodeURIComponent(filters.selectedArea)}`;
+        }
+
+        if (filters.selectedSubAreas && filters.selectedSubAreas.length > 0) {
+          filters.selectedSubAreas.forEach((sa) => { url += `&sub_area=${encodeURIComponent(sa)}`; });
+        } else if (filters.selectedSubArea && filters.selectedSubArea !== 'ALL') {
+          url += `&sub_area=${encodeURIComponent(filters.selectedSubArea)}`;
+        }
+
+        if (filters.selectedStores && filters.selectedStores.length > 0) {
+          filters.selectedStores.forEach((st) => { url += `&store=${encodeURIComponent(st)}`; });
+        } else if (filters.selectedStore) {
+          url += `&store=${encodeURIComponent(filters.selectedStore)}`;
+        }
+
+        if (filters.selectedCategories && filters.selectedCategories.length > 0) {
+          filters.selectedCategories.forEach((cat) => { url += `&category=${encodeURIComponent(cat)}`; });
+        } else if (filters.selectedCategory && filters.selectedCategory !== 'ALL') {
+          url += `&category=${encodeURIComponent(filters.selectedCategory)}`;
+        }
+
+        if (filters.selectedFamilies && filters.selectedFamilies.length > 0) {
+          filters.selectedFamilies.forEach((f) => { url += `&family=${encodeURIComponent(f)}`; });
+        } else if (filters.selectedFamily && filters.selectedFamily !== 'ALL') {
+          url += `&family=${encodeURIComponent(filters.selectedFamily)}`;
+        }
+
+        if (filters.selectedProducts && filters.selectedProducts.length > 0) {
+          filters.selectedProducts.forEach((p) => { url += `&product=${encodeURIComponent(p)}`; });
+        } else if (filters.selectedProduct) {
+          url += `&product=${encodeURIComponent(filters.selectedProduct)}`;
+        }
         const res = await fetch(url);
         if (res.ok) {
           const json = await res.json();
@@ -290,11 +342,17 @@ export const GroupAnalysisPage: React.FC<Props> = ({ dimension }) => {
     selectedNode,
     dimension,
     filters.selectedArea,
+    filters.selectedAreas,
     filters.selectedSubArea,
+    filters.selectedSubAreas,
     filters.selectedStore,
+    filters.selectedStores,
     filters.selectedCategory,
+    filters.selectedCategories,
     filters.selectedFamily,
-    filters.selectedProduct
+    filters.selectedFamilies,
+    filters.selectedProduct,
+    filters.selectedProducts
   ]);
 
   const rawNodes = apiData?.nodes || apiData?.groups || [];

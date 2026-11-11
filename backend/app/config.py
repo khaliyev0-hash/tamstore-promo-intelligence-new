@@ -22,7 +22,7 @@ def _load_env_file():
 _load_env_file()
 EXCEL_SOURCE_PATH = os.getenv("EXCEL_SOURCE_PATH", "TEST1.xlsx")
 STORE_STATUS_INCLUDE_DEFAULT = "AKTIV"
-STORE_TYPE_EXCLUDE_DEFAULT = "BLANK,MINI,REGION MINI"
+STORE_TYPE_EXCLUDE_DEFAULT = "BLANK"
 
 def normalize_rule_token(val: Optional[str]) -> str:
     if val is None:
@@ -136,5 +136,24 @@ COLUMN_ALIASES = {
     "FAMILY": [
         "FAMILY", "FAMILIYA", "AİLƏ", "AILE", "AILƏ", "MEHSUL FAMILY", "MƏHSUL FAMILY",
         "PRODUCT FAMILY", "FAMILY_NAME", "FAMILY NAME", "AİLE"
+    ],
+    "ORIGIN": [
+        "IDXAL", "İDXAL", "MENŞƏ", "MENSE", "MENŞE", "MƏNŞƏ", "MƏNSƏ", "ORIGIN",
+        "SOURCE", "PL", "YERLI", "YERLİ", "MEHSUL NOVU", "MƏHSUL NÖVÜ", "NOV", "NÖV",
+        "IDXAL/YERLI", "İDXAL/YERLİ", "MƏHSUL MƏNŞƏYİ", "MEHSUL MENSEYI", "MƏNŞƏYİ"
+    ],
+    "INSERT_FORMAT": [
+        "INSERT FORMAT", "INSERT_FORMAT", "INSERTFORMAT", "INZERT FORMAT", "INZERT_FORMAT",
+        "İNSERT FORMAT", "İNSERT FORMATI", "INSERT FORMATI", "INSERT_FORMATI", "INSERT_FORMAL"
+    ],
+    "STORE_FORMAT": [
+        "FORMAT", "STORE FORMAT", "STORE_FORMAT", "MAGAZA FORMATI", "MAĞAZA FORMATI",
+        "FORMATI", "TIPI", "TİPİ", "STORE TYPE", "MAĞAZA TİPİ", "MAGAZA TIPI"
+    ],
+    "STATUS": [
+        "STATUS", "STATUSU", "MAGAZA STATUSU", "MAĞAZA STATUSU", "MƏHSUL STATUSU",
+        "MEHSUL STATUSU", "AKTIV/PASIF", "AKTIV / PASIF", "AKTIV_PASIF", "AKTIV",
+        "PASIF", "PASSIV", "AKTİV/PASSİV", "AKTİV / PASSİV", "VƏZİYYƏT", "VEZIYYET",
+        "AKTİVLİK", "AKTIVLIK"
     ]
 }

@@ -12,7 +12,8 @@ logger = logging.getLogger(__name__)
 def merge_excel_with_db(
     excel_df: pd.DataFrame, 
     mapping: ColumnMapping, 
-    db_df: pd.DataFrame
+    db_df: pd.DataFrame,
+    order_status_map: Optional[Dict[Tuple[str, str], str]] = None
 ) -> pd.DataFrame:
     """
     TASK 3: Merges uploaded Excel DataFrame (Template 1) with DB sales & stock records.
@@ -30,6 +31,10 @@ def merge_excel_with_db(
     family_col = mapping.family_col if (mapping.family_col and mapping.family_col in excel_df.columns) else None
     area_col = mapping.area_col if (mapping.area_col and mapping.area_col in excel_df.columns) else None
     sub_area_col = mapping.sub_area_col if (mapping.sub_area_col and mapping.sub_area_col in excel_df.columns) else None
+    origin_col = mapping.origin_col if (mapping.origin_col and mapping.origin_col in excel_df.columns) else None
+    insert_format_col = mapping.insert_format_col if (mapping.insert_format_col and mapping.insert_format_col in excel_df.columns) else None
+    format_col = mapping.format_col if (mapping.format_col and mapping.format_col in excel_df.columns) else None
+    status_col = mapping.status_col if (mapping.status_col and mapping.status_col in excel_df.columns) else None
 
     raw_code = excel_df[code_col].astype(str).str.strip() if code_col else pd.Series([""] * len(excel_df))
     norm_code = raw_code.map(lambda c: normalize_item_code(c) or c)
@@ -98,6 +103,32 @@ def merge_excel_with_db(
     sub_area_series = merged[sub_area_col].astype(str).str.strip() if sub_area_col else pd.Series([None] * len(merged), index=merged.index)
     sub_area_series = sub_area_series.replace({"": None, "nan": None, "None": None, "null": None})
 
+    origin_series = merged[origin_col].astype(str).str.strip() if origin_col else pd.Series([None] * len(merged), index=merged.index)
+    origin_series = origin_series.replace({"": None, "nan": None, "None": None, "null": None})
+
+    insert_format_series = merged[insert_format_col].astype(str).str.strip() if insert_format_col else pd.Series([None] * len(merged), index=merged.index)
+    insert_format_series = insert_format_series.replace({"": None, "nan": None, "None": None, "null": None})
+
+    format_series = merged[format_col].astype(str).str.strip() if format_col else pd.Series([None] * len(merged), index=merged.index)
+    format_series = format_series.replace({"": None, "nan": None, "None": None, "null": None})
+
+    if status_col:
+        status_series = merged[status_col].astype(str).str.strip()
+        status_series = status_series.replace({"": None, "nan": None, "None": None, "null": None})
+    elif order_status_map:
+        status_series = pd.Series(
+            [order_status_map.get((st, cd), "Aktiv" if (s > 0 or st_qty > 0 or f > 0) else "Passiv")
+             for st, cd, s, st_qty, f in zip(merged['_norm_store'], merged['_norm_code'], sale_series, stock_series, fc_series)],
+            index=merged.index
+        )
+    else:
+        status_series = pd.Series(
+            ["Aktiv" if (s > 0 or st > 0 or f > 0) else "Passiv" for s, st, f in zip(sale_series, stock_series, fc_series)],
+            index=merged.index
+        )
+
+    excel_store_cnt_series = merged['EXCEL_STORE_COUNT'] if 'EXCEL_STORE_COUNT' in merged.columns else pd.Series([0] * len(merged), index=merged.index)
+
     final_df = pd.DataFrame({
         'STORE': merged['_raw_store'],
         'CODE': merged['_raw_code'],
@@ -114,7 +145,12 @@ def merge_excel_with_db(
         'SUB_CATEGORY': sub_category_series,
         'FAMILY': family_series,
         'AREA': area_series,
-        'SUB_AREA': sub_area_series
+        'SUB_AREA': sub_area_series,
+        'ORIGIN': origin_series,
+        'INSERT_FORMAT': insert_format_series,
+        'STORE_FORMAT': format_series,
+        'STATUS': status_series,
+        'EXCEL_STORE_COUNT': excel_store_cnt_series
     })
 
     final_df = final_df[final_df['CODE'] != ""].reset_index(drop=True)
@@ -169,7 +205,8 @@ def normalize_excel_data(
     mapping: ColumnMapping,
     db_df: Optional[pd.DataFrame] = None,
     beg_date: Optional[str] = None,
-    end_date: Optional[str] = None
+    end_date: Optional[str] = None,
+    order_status_map: Optional[Dict[Tuple[str, str], str]] = None
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Transforms uploaded or merged DataFrame into:
@@ -319,6 +356,51 @@ def normalize_excel_data(
     else:
         clean_df['SUB_AREA'] = None
 
+    if 'ORIGIN' in df.columns:
+        clean_df['ORIGIN'] = df['ORIGIN']
+    elif mapping.origin_col and mapping.origin_col in df.columns:
+        clean_df['ORIGIN'] = df[mapping.origin_col]
+    else:
+        clean_df['ORIGIN'] = None
+
+    if 'INSERT_FORMAT' in df.columns:
+        clean_df['INSERT_FORMAT'] = df['INSERT_FORMAT']
+    elif mapping.insert_format_col and mapping.insert_format_col in df.columns:
+        clean_df['INSERT_FORMAT'] = df[mapping.insert_format_col]
+    else:
+        clean_df['INSERT_FORMAT'] = None
+
+    if 'STORE_FORMAT' in df.columns:
+        clean_df['STORE_FORMAT'] = df['STORE_FORMAT']
+    elif mapping.format_col and mapping.format_col in df.columns:
+        clean_df['STORE_FORMAT'] = df[mapping.format_col]
+    else:
+        clean_df['STORE_FORMAT'] = None
+
+    if 'STATUS' in df.columns:
+        clean_df['STATUS'] = df['STATUS']
+    elif mapping.status_col and mapping.status_col in df.columns:
+        clean_df['STATUS'] = df[mapping.status_col]
+    elif order_status_map:
+        clean_df['STATUS'] = [
+            order_status_map.get((normalize_store_code(st) or str(st).strip(), normalize_item_code(cd) or str(cd).strip()),
+                                 'Aktiv' if (s > 0 or stk > 0 or fc > 0) else 'Passiv')
+            for st, cd, s, stk, fc in zip(clean_df['STORE'], clean_df['CODE'], clean_df['SALE'], clean_df['FINAL_STOCK'], clean_df['FC'])
+        ]
+    else:
+        clean_df['STATUS'] = clean_df.apply(
+            lambda r: 'Aktiv' if (r.get('SALE', 0) > 0 or r.get('FINAL_STOCK', 0) > 0 or r.get('FC', 0) > 0) else 'Passiv',
+            axis=1
+        )
+
+    if 'EXCEL_STORE_COUNT' in df.columns:
+        clean_df['EXCEL_STORE_COUNT'] = df['EXCEL_STORE_COUNT']
+    elif mapping.code_col and mapping.store_col and mapping.code_col in df.columns and mapping.store_col in df.columns:
+        counts = df.groupby(mapping.code_col)[mapping.store_col].nunique().to_dict()
+        clean_df['EXCEL_STORE_COUNT'] = df[mapping.code_col].map(counts).fillna(0).astype(int)
+    else:
+        clean_df['EXCEL_STORE_COUNT'] = 0
+
     # Aggregate duplicate STORE + CODE combinations
     agg_dict = {
         'NAME': 'first',
@@ -345,6 +427,16 @@ def normalize_excel_data(
         agg_dict['AREA'] = 'first'
     if 'SUB_AREA' in clean_df.columns:
         agg_dict['SUB_AREA'] = 'first'
+    if 'ORIGIN' in clean_df.columns:
+        agg_dict['ORIGIN'] = 'first'
+    if 'INSERT_FORMAT' in clean_df.columns:
+        agg_dict['INSERT_FORMAT'] = 'first'
+    if 'STORE_FORMAT' in clean_df.columns:
+        agg_dict['STORE_FORMAT'] = 'first'
+    if 'STATUS' in clean_df.columns:
+        agg_dict['STATUS'] = 'first'
+    if 'EXCEL_STORE_COUNT' in clean_df.columns:
+        agg_dict['EXCEL_STORE_COUNT'] = 'first'
 
     promo_fact_df = clean_df.groupby(['STORE', 'CODE'], as_index=False).agg(agg_dict)
     

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useData } from '../../context/DataContext';
 import { useTheme } from '../../context/ThemeContext';
-import { Search, LayoutDashboard, TrendingUp, Store, Package, Grid, FileSpreadsheet, Settings, X, ArrowRight, CornerDownLeft, Zap, Tags, MapPin, Calendar, Truck, AlertTriangle, Tv, Sun, Moon } from 'lucide-react';
+import { Search, LayoutDashboard, TrendingUp, Store, Package, Grid, FileSpreadsheet, Settings, X, ArrowRight, CornerDownLeft, Zap, Tags, MapPin, Calendar, Truck, AlertTriangle, Tv, Sun, Moon, BookOpen } from 'lucide-react';
 
 interface CommandPaletteProps {
   isOpen: boolean;
@@ -16,6 +16,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose 
 
   const pages = [
     { id: 'dashboard', label: 'İcraçı Dashboard & KPI İcmalı (Dashboard)', icon: LayoutDashboard, category: 'Səhifə' },
+    { id: 'promo_catalog', label: 'Promo Jurnalı & Kataloq (PDF Promo Magazine)', icon: BookOpen, category: 'Səhifə' },
     { id: 'promo_perf', label: 'Promosiya Satış Performansı (Promo Sales)', icon: TrendingUp, category: 'Səhifə' },
     { id: 'promo_uplift', label: 'Promo Uplift Analizi (Baseline vs Uplift)', icon: Zap, category: 'Səhifə' },
     { id: 'category_analysis', label: 'Category Analiz (Tree Table)', icon: Tags, category: 'Səhifə' },

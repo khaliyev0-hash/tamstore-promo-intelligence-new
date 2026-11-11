@@ -4,7 +4,7 @@ import { Store, Search, Calendar, Download, Loader2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { getApiBase } from '../utils/api';
 import { SortableHeader } from '../components/common/SortableHeader';
-import { isPromoTypeMatch } from '../utils/filterUtils';
+import { isPromoTypeMatch, isProductMatchGlobalFilters, isStoreMatchGlobalFilters } from '../utils/filterUtils';
 
 interface ProductDailyRow {
   code: string;
@@ -44,14 +44,9 @@ export const StoreDailyStockPage: React.FC = () => {
 
   const availableStores = useMemo(() => {
     let list = data?.store_performances || [];
-    if (filters?.selectedArea && filters.selectedArea !== 'ALL') {
-      list = list.filter((s) => s.area === filters.selectedArea);
-    }
-    if (filters?.selectedSubArea && filters.selectedSubArea !== 'ALL') {
-      list = list.filter((s) => s.sub_area === filters.selectedSubArea);
-    }
+    list = list.filter((s) => isStoreMatchGlobalFilters(s, filters));
     return list.map((s) => s.store);
-  }, [data?.store_performances, filters?.selectedArea, filters?.selectedSubArea]);
+  }, [data?.store_performances, filters]);
 
   useEffect(() => {
     if (filters?.selectedStore && availableStores.includes(filters.selectedStore)) {
@@ -235,17 +230,8 @@ export const StoreDailyStockPage: React.FC = () => {
   }, [windowDates, data?.stock_dates, rows]);
 
   const filteredRows = rows.filter((r) => {
-    if (filters?.selectedProduct && r.code !== filters.selectedProduct) return false;
-    const meta = productMetaMap.get(r.code);
-    if (filters?.selectedCategory && filters.selectedCategory !== 'ALL') {
-      if (!meta || meta.category !== filters.selectedCategory) return false;
-    }
-    if (filters?.selectedFamily && filters.selectedFamily !== 'ALL') {
-      if (!meta || meta.family !== filters.selectedFamily) return false;
-    }
-    if (filters?.promoType && filters.promoType !== 'ALL') {
-      if (!isPromoTypeMatch(meta || r.code, filters.promoType)) return false;
-    }
+    const meta = productMetaMap.get(r.code) || { code: r.code, name: r.name };
+    if (!isProductMatchGlobalFilters(meta, filters)) return false;
     if (!search) return true;
     const q = search.toLowerCase();
     return r.name.toLowerCase().includes(q) || r.code.toLowerCase().includes(q);

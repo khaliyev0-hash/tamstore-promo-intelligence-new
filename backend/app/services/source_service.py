@@ -10,7 +10,7 @@ from app.config import EXCEL_SOURCE_PATH, DEFAULT_SETTINGS
 from app.parser import detect_columns, analyze_data_quality, extract_and_validate_campaign_dates
 from app.normalizer import normalize_excel_data, merge_excel_with_db
 from app.analytics.kpi_calculator import calculate_kpis
-from app.db import fetch_promo_sales_and_stock, get_active_store_codes, normalize_store_code
+from app.db import fetch_promo_sales_and_stock, get_active_store_codes, normalize_store_code, normalize_item_code, fetch_item_store_order_status
 from app.schemas import ColumnMapping, DataQualityWarning
 
 def get_project_root() -> str:
@@ -154,6 +154,21 @@ def process_excel_file(
         df_norm_stores = df[store_col].apply(normalize_store_code)
         excel_stores_all = set(df_norm_stores.dropna().unique())
 
+        # Compute exact store count in raw Excel per item code before filtering
+        if mapping.code_col and mapping.store_col and mapping.code_col in df.columns and mapping.store_col in df.columns:
+            counts = df.groupby(mapping.code_col)[mapping.store_col].nunique().to_dict()
+            norm_esc_map = {}
+            for k, v in counts.items():
+                norm_esc_map[str(k).strip()] = int(v)
+                norm_k = normalize_item_code(str(k))
+                if norm_k:
+                    norm_esc_map[norm_k] = int(v)
+            df['EXCEL_STORE_COUNT'] = df[mapping.code_col].astype(str).str.strip().map(
+                lambda c: norm_esc_map.get(normalize_item_code(c) or c, norm_esc_map.get(c, 0))
+            )
+        else:
+            df['EXCEL_STORE_COUNT'] = 0
+
         unmatched_stores = sorted(list(excel_stores_all - all_view_stores))
         mask_active = df_norm_stores.isin(active_store_codes)
 
@@ -194,6 +209,13 @@ def process_excel_file(
         item_codes = df[mapping.code_col].astype(str).str.strip().unique().tolist() if mapping.code_col else None
         store_codes = df[mapping.store_col].astype(str).str.strip().unique().tolist() if mapping.store_col else None
 
+        # Automatically sync missing daily sales from SQL Server if new day has arrived
+        try:
+            from sync_daily_sales import sync_missing_sales
+            sync_missing_sales()
+        except Exception as sync_err:
+            print(f"[DEBUG] Incremental sales sync skipped: {sync_err}")
+
         db_warning = None
         try:
             db_df = fetch_promo_sales_and_stock(beg_date, end_date, item_codes, store_codes)
@@ -203,11 +225,19 @@ def process_excel_file(
             db_df = pd.DataFrame(columns=['store_code', 'item_code', 'sales_qty', 'current_stock', 'supplier_name'])
         print(f"[TIMING] DB Query (fetch_promo_sales_and_stock): {time.perf_counter()-t0:.4f}s (returned rows: {len(db_df)})")
 
+        # Fetch SIFARISE ACIQ (Aktiv / Passiv) from ITEM DETAIL
+        order_status_map = {}
+        try:
+            order_status_map = fetch_item_store_order_status(item_codes, store_codes)
+            print(f"[TIMING] Order Status Map (ITEM DETAIL): {len(order_status_map)} pairs loaded")
+        except Exception as st_err:
+            print(f"[DEBUG] Order status fetch error: {st_err}")
+
         if progress_callback:
             progress_callback("Datalar birləşdirilir...")
 
         t0 = time.perf_counter()
-        merged_df = merge_excel_with_db(df, mapping, db_df)
+        merged_df = merge_excel_with_db(df, mapping, db_df, order_status_map=order_status_map)
         print(f"[TIMING] Merge logic: {time.perf_counter()-t0:.4f}s")
 
         t0 = time.perf_counter()
@@ -270,10 +300,19 @@ def process_excel_file(
             if not valid_vals.empty:
                 insert_name = valid_vals.iloc[0]
 
-        if not insert_name:
-            fn = original_filename or os.path.basename(file_path)
-            fname = fn.rsplit('.', 1)[0] if '.' in fn else fn
-            insert_name = fname.replace("_", " ").title()
+        if not insert_name or insert_name.lower() in ('test1', 'template', 'data'):
+            if beg_date and end_date:
+                # e.g. "29.10 - 11.11 Promo"
+                try:
+                    b_dt = pd.to_datetime(beg_date)
+                    e_dt = pd.to_datetime(end_date)
+                    insert_name = f"{b_dt.strftime('%d.%m')} - {e_dt.strftime('%d.%m')} Promo"
+                except Exception:
+                    insert_name = f"{beg_date} - {end_date} Promo"
+            else:
+                fn = original_filename or os.path.basename(file_path)
+                fname = fn.rsplit('.', 1)[0] if '.' in fn else fn
+                insert_name = fname.replace("_", " ").title()
 
         archive_payload = {
             "insert_name": insert_name,

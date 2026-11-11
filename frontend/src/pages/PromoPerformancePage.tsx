@@ -13,13 +13,12 @@ import {
   Filter,
   Sparkles,
   BarChart2,
-  Layers,
   X,
   Package,
   TrendingDown
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { isPromoTypeMatch } from '../utils/filterUtils';
+import { isPromoTypeMatch, isProductMatchGlobalFilters } from '../utils/filterUtils';
 import { DashboardSkeleton } from '../components/common/SkeletonLoader';
 import { SortableHeader } from '../components/common/SortableHeader';
 import type { ProductPerformance } from '../types';
@@ -40,11 +39,8 @@ export const PromoPerformancePage: React.FC = () => {
   // Global Context Filter sync
   const baseProducts = useMemo(() => {
     return product_performances.filter((p) => {
-      if (filters.selectedProduct && p.code !== filters.selectedProduct) return false;
-      if (filters.selectedCategory && filters.selectedCategory !== 'ALL' && p.category !== filters.selectedCategory) return false;
-      if (filters.selectedFamily && filters.selectedFamily !== 'ALL' && p.family !== filters.selectedFamily) return false;
+      if (!isProductMatchGlobalFilters(p, filters)) return false;
       if (filters.abcClass !== 'ALL' && p.abc_class !== filters.abcClass) return false;
-      if (filters.promoType && filters.promoType !== 'ALL' && !isPromoTypeMatch(p, filters.promoType)) return false;
       return true;
     });
   }, [product_performances, filters]);
@@ -288,7 +284,7 @@ export const PromoPerformancePage: React.FC = () => {
       </div>
 
       {/* Summary KPI Cards Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1: Total Promo Sales */}
         <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between">
@@ -372,24 +368,6 @@ export const PromoPerformancePage: React.FC = () => {
             </div>
           </div>
         </div>
-
-        {/* Card 5: Closing Stock & Stockout */}
-        <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Qalıq Stok / Stokout</span>
-            <div className="p-2 bg-amber-50 dark:bg-amber-950/80 text-amber-600 dark:text-amber-300 rounded-xl">
-              <Layers className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-2">
-            <div className="text-2xl font-black text-slate-800 dark:text-slate-100 font-mono tracking-tight">
-              {kpiStats.total_stock.toLocaleString()} <span className="text-xs font-normal text-slate-400">ədəd</span>
-            </div>
-            <div className="text-[11px] font-bold text-rose-600 dark:text-rose-400 mt-0.5">
-              {kpiStats.stockout_count} SKU-da ehtiyat tükənib
-            </div>
-          </div>
-        </div>
       </div>
 
       {/* Promo Növü Müqayisəsi (Təsir vs Adi) */}
@@ -430,7 +408,7 @@ export const PromoPerformancePage: React.FC = () => {
                   <span className="text-xs font-bold text-slate-600 dark:text-slate-400 font-mono">{pt.count} SKU</span>
                 </div>
 
-                <div className="grid grid-cols-4 gap-2 text-center">
+                <div className="grid grid-cols-3 gap-2.5 text-center">
                   <div className="p-2.5 bg-white dark:bg-slate-900 rounded-lg border border-slate-200/80 dark:border-slate-700 shadow-xs">
                     <span className="text-[9px] font-bold text-slate-400 uppercase">Hədəf (FC)</span>
                     <p className="text-xs font-black text-slate-700 dark:text-slate-300 font-mono mt-0.5">{pt.fc.toLocaleString()}</p>
@@ -448,10 +426,6 @@ export const PromoPerformancePage: React.FC = () => {
                   }`}>
                     <span className="text-[9px] font-bold uppercase">Reallaşma</span>
                     <p className="text-xs font-black font-mono mt-0.5">{pt.ach}%</p>
-                  </div>
-                  <div className="p-2.5 bg-white dark:bg-slate-900 rounded-lg border border-slate-200/80 dark:border-slate-700 shadow-xs">
-                    <span className="text-[9px] font-bold text-slate-400 uppercase">Qalıq Stok</span>
-                    <p className="text-xs font-black text-slate-700 dark:text-slate-300 font-mono mt-0.5">{pt.stock.toLocaleString()}</p>
                   </div>
                 </div>
               </div>

@@ -50,7 +50,7 @@ const colorMap = {
 
 /**
  * SpotlightCard:
- * High-tech glassmorphic card component with reactive 3D cursor-tracking neon spotlight,
+ * High-tech glassmorphic card component with reactive cursor-tracking neon spotlight,
  * subtle illuminated top accent bar, and ambient hover elevation.
  */
 export const SpotlightCard: React.FC<SpotlightCardProps> = ({
@@ -63,16 +63,13 @@ export const SpotlightCard: React.FC<SpotlightCardProps> = ({
   ...rest
 }) => {
   const cardRef = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [opacity, setOpacity] = useState<number>(0);
 
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!cardRef.current || !interactive) return;
     const rect = cardRef.current.getBoundingClientRect();
-    setPosition({
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
-    });
+    cardRef.current.style.setProperty('--spotlight-x', `${e.clientX - rect.left}px`);
+    cardRef.current.style.setProperty('--spotlight-y', `${e.clientY - rect.top}px`);
   }, [interactive]);
 
   const handleMouseEnter = useCallback(() => {
@@ -129,7 +126,7 @@ export const SpotlightCard: React.FC<SpotlightCardProps> = ({
           className="pointer-events-none absolute -inset-px transition-opacity duration-300 z-0"
           style={{
             opacity,
-            background: `radial-gradient(320px circle at ${position.x}px ${position.y}px, ${colorCfg.spotlight}, transparent 80%)`,
+            background: `radial-gradient(320px circle at var(--spotlight-x, -999px) var(--spotlight-y, -999px), ${colorCfg.spotlight}, transparent 80%)`,
           }}
         />
       )}

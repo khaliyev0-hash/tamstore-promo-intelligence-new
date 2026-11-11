@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useData } from '../context/DataContext';
 import { Truck, Store, Building2, Search, CheckCircle2, AlertTriangle } from 'lucide-react';
-import { isPromoTypeMatch } from '../utils/filterUtils';
+import { isPromoTypeMatch, isProductMatchGlobalFilters, isStoreMatchGlobalFilters } from '../utils/filterUtils';
 import { SortableHeader } from '../components/common/SortableHeader';
 import { SpotlightCard } from '../components/common/SpotlightCard';
 import { AnimatedCounter } from '../components/common/AnimatedCounter';
@@ -65,32 +65,13 @@ export const ServiceLevelPage: React.FC = () => {
   }, [data?.product_performances]);
 
   const filteredRecords = records.filter((r) => {
-    // Global Store filter
-    if (filters.selectedStore && r.store !== filters.selectedStore) return false;
+    // Global Store, Area, Sub Area filters
+    const storeMeta = storeMetaMap.get(r.store) || {};
+    if (!isStoreMatchGlobalFilters({ store: r.store, ...storeMeta }, filters)) return false;
 
-    // Global Area & Sub Area filters
-    const storeMeta = storeMetaMap.get(r.store);
-    if (filters.selectedArea && filters.selectedArea !== 'ALL') {
-      if (!storeMeta || storeMeta.area !== filters.selectedArea) return false;
-    }
-    if (filters.selectedSubArea && filters.selectedSubArea !== 'ALL') {
-      if (!storeMeta || storeMeta.sub_area !== filters.selectedSubArea) return false;
-    }
-
-    // Global Product filter
-    if (filters.selectedProduct && r.code !== filters.selectedProduct) return false;
-
-    // Global Category & Family filters
-    const prodMeta = productMetaMap.get(r.code);
-    if (filters.selectedCategory && filters.selectedCategory !== 'ALL') {
-      if (!prodMeta || prodMeta.category !== filters.selectedCategory) return false;
-    }
-    if (filters.selectedFamily && filters.selectedFamily !== 'ALL') {
-      if (!prodMeta || prodMeta.family !== filters.selectedFamily) return false;
-    }
-
-    // Global Promo Type filter
-    if (filters.promoType && filters.promoType !== 'ALL' && !isPromoTypeMatch(r.code, filters.promoType, productPromoMap)) return false;
+    // Global Product, Category, Family, Promo Type filters
+    const prodMeta = productMetaMap.get(r.code) || {};
+    if (!isProductMatchGlobalFilters({ code: r.code, name: r.name, ...prodMeta }, filters, productPromoMap)) return false;
 
     // Supplier filter (local to ServiceLevelPage)
     if (selectedSupplier !== 'ALL' && r.supplier !== selectedSupplier) return false;

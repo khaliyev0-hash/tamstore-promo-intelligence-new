@@ -78,19 +78,8 @@ def export_all_to_parquet(start_date: str = "2026-06-01", end_date: str = "2026-
         # 2. Extract Sales Snapshot
         print(f"Extracting Sales Report ({start_date} to {end_date}) from SQL Server...", flush=True)
         t0 = time.perf_counter()
-        sales_sql = f"""
-        SELECT 
-            CAST([TARIX] AS VARCHAR(10)) AS sale_date,
-            CAST([MAGAZA] AS VARCHAR(20)) AS store_code,
-            LTRIM(RTRIM(CAST([MEHSUL_KODU] AS VARCHAR(50)))) AS item_code,
-            SUM(ISNULL([MIQDARI], 0)) AS sales_qty,
-            SUM(ISNULL([SATIS_EDV], 0)) AS sales_amount
-        FROM fnc_TS_SALES_REPORT_FOR_PLANNING('{start_date}', '{end_date}')
-        GROUP BY [TARIX], CAST([MAGAZA] AS VARCHAR(20)), LTRIM(RTRIM(CAST([MEHSUL_KODU] AS VARCHAR(50))))
-        """
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=UserWarning)
-            sales_df = pd.read_sql_query(sales_sql, conn)
+        from app.db import fetch_sales_from_sql
+        sales_df = fetch_sales_from_sql(start_date, end_date, conn=conn)
             
         sales_df['export_timestamp'] = export_timestamp
         sales_df.to_parquet(SALES_PARQUET, engine='pyarrow', compression='snappy', index=False)

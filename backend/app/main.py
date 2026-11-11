@@ -1,6 +1,7 @@
 import io
 import os
 import re
+import math
 from datetime import datetime, timedelta
 import pandas as pd
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Response, Request, Query
@@ -29,11 +30,13 @@ from app.export.excel_exporter import generate_multi_sheet_excel
 from app.export.pdf_exporter import generate_pdf_report
 from app.demo_data import generate_demo_excel
 from contextlib import asynccontextmanager
-from app.db import fetch_promo_sales_and_stock, normalize_store_code, normalize_item_code, get_store_historical_stocks, fetch_regular_sales_30d
+from app.db import fetch_promo_sales_and_stock, normalize_store_code, normalize_item_code, get_store_historical_stocks, fetch_regular_sales_30d, fetch_single_item_store_details, get_supply_type_label
 from app.analytics.inflows import compute_inflows, compute_sales_adjusted_inflows, compute_over_stock, compute_over_stock_base, compute_over_stock_breakdown
 from app.services.source_service import process_excel_file
 from app.watcher import watcher
 from app.distribution.api import router as distribution_router
+from app.catalog.api import router as catalog_router
+from app.lost_sales.api import router as lost_sales_router, trigger_background_computation
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -61,6 +64,8 @@ app.add_middleware(
 )
 
 app.include_router(distribution_router)
+app.include_router(catalog_router)
+app.include_router(lost_sales_router)
 
 def make_cors_response(status_code: int, content: Dict[str, Any], request: Request) -> JSONResponse:
     origin = request.headers.get("origin") or "*"
@@ -137,19 +142,74 @@ def save_campaign_archive(insert_name: str, beg_date: str, end_date: str, archiv
         json.dump(archive_data, f, ensure_ascii=False, default=str)
         
     set_active_campaign_id(campaign_id)
+    try:
+        trigger_background_computation(campaign_id)
+    except Exception as e:
+        print(f"Warning: could not trigger lost sales post-processing for {campaign_id}: {e}")
     return campaign_id
 
+
+_campaign_archive_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+_campaign_meta_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 
 def load_campaign_archive(campaign_id: str) -> Optional[Dict[str, Any]]:
     filepath = os.path.join(CAMPAIGNS_DIR, f"{campaign_id}.json")
     if os.path.exists(filepath):
         try:
+            mtime = os.path.getmtime(filepath)
+            if campaign_id in _campaign_archive_cache:
+                cached_mtime, cached_data = _campaign_archive_cache[campaign_id]
+                if cached_mtime == mtime:
+                    return cached_data
             with open(filepath, "r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+                _campaign_archive_cache[campaign_id] = (mtime, data)
+                return data
         except Exception as e:
             print(f"Error loading campaign archive {campaign_id}: {e}")
             return None
     return None
+
+def get_single_campaign_metadata(filepath: str, filename: str) -> Optional[Dict[str, Any]]:
+    try:
+        mtime = os.path.getmtime(filepath)
+        if filename in _campaign_meta_cache:
+            cached_mtime, cached_meta = _campaign_meta_cache[filename]
+            if cached_mtime == mtime:
+                return dict(cached_meta)
+
+        meta_path = filepath + ".meta"
+        if os.path.exists(meta_path) and os.path.getmtime(meta_path) >= mtime:
+            try:
+                with open(meta_path, "r", encoding="utf-8") as mf:
+                    meta = json.load(mf)
+                    _campaign_meta_cache[filename] = (mtime, meta)
+                    return dict(meta)
+            except Exception:
+                pass
+
+        with open(filepath, "r", encoding="utf-8") as f:
+            c = json.load(f)
+            meta = {
+                "id": c.get("id", filename.replace(".json", "")),
+                "insert_name": c.get("insert_name", "İnsert"),
+                "beg_date": c.get("beg_date", ""),
+                "end_date": c.get("end_date", ""),
+                "created_at": c.get("created_at", ""),
+                "item_count": c.get("item_count", 0),
+                "is_active": False,
+                "is_latest": False
+            }
+            try:
+                with open(meta_path, "w", encoding="utf-8") as mf:
+                    json.dump(meta, mf, ensure_ascii=False)
+            except Exception:
+                pass
+            _campaign_meta_cache[filename] = (mtime, meta)
+            return dict(meta)
+    except Exception as e:
+        print(f"Error reading campaign metadata {filename}: {e}")
+        return None
 
 def list_campaign_metadata() -> List[Dict[str, Any]]:
     if not os.path.exists(CAMPAIGNS_DIR):
@@ -159,23 +219,11 @@ def list_campaign_metadata() -> List[Dict[str, Any]]:
     campaigns = []
     
     for filename in os.listdir(CAMPAIGNS_DIR):
-        if filename.endswith(".json"):
+        if filename.endswith(".json") and not filename.endswith(".meta.json") and not filename.endswith(".meta"):
             filepath = os.path.join(CAMPAIGNS_DIR, filename)
-            try:
-                with open(filepath, "r", encoding="utf-8") as f:
-                    c = json.load(f)
-                    campaigns.append({
-                        "id": c.get("id", filename.replace(".json", "")),
-                        "insert_name": c.get("insert_name", "İnsert"),
-                        "beg_date": c.get("beg_date", ""),
-                        "end_date": c.get("end_date", ""),
-                        "created_at": c.get("created_at", ""),
-                        "item_count": c.get("item_count", 0),
-                        "is_active": False,
-                        "is_latest": False
-                    })
-            except Exception as e:
-                print(f"Error reading campaign metadata {filename}: {e}")
+            meta = get_single_campaign_metadata(filepath, filename)
+            if meta:
+                campaigns.append(meta)
                 
     campaigns.sort(key=lambda x: x.get("created_at", ""), reverse=True)
     
@@ -200,7 +248,7 @@ def ensure_complete_analytics_payload(analytics: Dict[str, Any]) -> Dict[str, An
     array_keys = [
         "store_performances", "product_performances", "category_performances",
         "service_level_records", "daily_summaries", "alerts", "recommendations", "stock_dates", "insights",
-        "categories", "areas", "families", "sub_areas"
+        "categories", "areas", "families", "sub_areas", "origins", "insert_formats", "formats"
     ]
     for key in array_keys:
         if key not in analytics or analytics[key] is None:
@@ -225,43 +273,68 @@ def ensure_complete_analytics_payload(analytics: Dict[str, Any]) -> Dict[str, An
     if "daily_sales" not in analytics:
         analytics["daily_sales"] = None
 
+    _supply_map = None
+    supply_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "item_supply_types.json")
+    if os.path.exists(supply_file):
+        try:
+            with open(supply_file, "r", encoding="utf-8") as f:
+                _supply_map = json.load(f).get("labels", {})
+        except Exception:
+            _supply_map = {}
+    else:
+        _supply_map = {}
+
+    for p in analytics.get("product_performances", []):
+        if "active_store_count" not in p or p["active_store_count"] is None:
+            p["active_store_count"] = p.get("store_count", 0)
+        if "passive_store_count" not in p or p["passive_store_count"] is None:
+            p["passive_store_count"] = 0
+        if "supply_type" not in p or not p["supply_type"]:
+            cd = str(p.get("code", "")).strip()
+            p["supply_type"] = _supply_map.get(cd, "Firma")
+            p["tedaruk_tipi"] = p["supply_type"]
+
     return analytics
 
 def restore_campaign_session(campaign_data: Dict[str, Any]):
-    fact_records = campaign_data.get("fact_records", [])
-    timeline_records = campaign_data.get("timeline_records", [])
+    cid = campaign_data.get("id")
     analytics = campaign_data.get("analytics")
-    if isinstance(analytics, dict) and "daily_sales" in campaign_data:
-        if "daily_sales" not in analytics or analytics["daily_sales"] is None:
+    if isinstance(analytics, dict):
+        if "daily_sales" in campaign_data and ("daily_sales" not in analytics or analytics["daily_sales"] is None):
             analytics["daily_sales"] = campaign_data["daily_sales"]
-    
-    fact_df = pd.DataFrame(fact_records) if fact_records else None
-    if fact_df is not None and not fact_df.empty:
-        fact_df.columns = [str(c).upper() for c in fact_df.columns]
+        analytics = ensure_complete_analytics_payload(analytics)
+        campaign_data["analytics"] = analytics
 
-    timeline_df = pd.DataFrame(timeline_records) if timeline_records else None
-    if timeline_df is not None and not timeline_df.empty:
-        timeline_df.columns = [str(c).upper() for c in timeline_df.columns]
-    
+    if (cid and session_state.get("active_campaign_id") == cid and 
+        session_state.get("analytics_result") is not None):
+        if analytics and (session_state["analytics_result"].get("daily_sales") is None and analytics.get("daily_sales") is not None):
+            session_state["analytics_result"]["daily_sales"] = analytics.get("daily_sales")
+        return
+
     mapping_dict = campaign_data.get("mapping")
     mapping = ColumnMapping(**mapping_dict) if mapping_dict else None
     
     quality_dict = campaign_data.get("quality_report")
     quality_report = DataQualityReport(**quality_dict) if quality_dict else None
     
-    analytics = campaign_data.get("analytics")
     if analytics:
         analytics = ensure_complete_analytics_payload(analytics)
         campaign_data["analytics"] = analytics
 
-    session_state["fact_df"] = fact_df
-    session_state["timeline_df"] = timeline_df
-    session_state["raw_df"] = fact_df
+    # Lazy-load: Store raw records without immediately doing expensive DataFrame conversion
+    session_state["_fact_records"] = campaign_data.get("fact_records", [])
+    session_state["_timeline_records"] = campaign_data.get("timeline_records", [])
+    session_state["fact_df"] = None
+    session_state["timeline_df"] = None
+    session_state["raw_df"] = None
     session_state["mapping"] = mapping
     session_state["quality_report"] = quality_report
     session_state["beg_date"] = campaign_data.get("beg_date", "2026-09-03")
     session_state["end_date"] = campaign_data.get("end_date", "2026-09-07")
     session_state["analytics_result"] = analytics
+    session_state["daily_sales"] = campaign_data.get("daily_sales") or (analytics.get("daily_sales") if analytics else None)
+    session_state["sample_rows"] = campaign_data.get("sample_rows", [])
+    session_state["active_campaign_id"] = cid
 
 
 
@@ -375,12 +448,29 @@ def clear_all_campaigns():
     session_state["analytics_result"] = None
     return {"status": "ok", "message": "Bütün köhnə kampaniya arxivləri təmizləndi."}
 
+def sanitize_analysis_response(data: Dict[str, Any]) -> Dict[str, Any]:
+    daily_sales = data.get("daily_sales") or (data.get("analytics", {}).get("daily_sales") if isinstance(data.get("analytics"), dict) else None)
+    return {
+        "id": data.get("id"),
+        "insert_name": data.get("insert_name"),
+        "beg_date": data.get("beg_date"),
+        "end_date": data.get("end_date"),
+        "item_count": data.get("item_count"),
+        "analytics": data.get("analytics"),
+        "daily_sales": daily_sales,
+        "mapping": data.get("mapping"),
+        "quality_report": data.get("quality_report"),
+        "confidence": data.get("confidence", 1.0),
+        "sample_rows": data.get("sample_rows", []),
+        "created_at": data.get("created_at")
+    }
+
 @app.get("/api/campaigns/{campaign_id}")
 def get_campaign(campaign_id: str):
     data = load_campaign_archive(campaign_id)
     if not data:
         raise HTTPException(status_code=404, detail="Kampaniya tapılmadı.")
-    return data
+    return sanitize_analysis_response(data)
 
 @app.post("/api/campaigns/{campaign_id}/activate")
 def activate_campaign(campaign_id: str):
@@ -389,7 +479,7 @@ def activate_campaign(campaign_id: str):
         raise HTTPException(status_code=404, detail="Kampaniya tapılmadı.")
     set_active_campaign_id(campaign_id)
     restore_campaign_session(data)
-    return {"status": "ok", "active_campaign_id": campaign_id, "campaign": data}
+    return {"status": "ok", "active_campaign_id": campaign_id, "campaign": sanitize_analysis_response(data)}
 
 def is_valid_campaign_data(data: Any) -> bool:
     if not isinstance(data, dict):
@@ -409,7 +499,23 @@ def get_current_analysis():
         data = load_campaign_archive(active_id)
         if data and is_valid_campaign_data(data):
             restore_campaign_session(data)
-            return data
+            return sanitize_analysis_response(data)
+
+        if (session_state.get("active_campaign_id") == active_id and 
+            session_state.get("analytics_result") and 
+            isinstance(session_state["analytics_result"], dict) and 
+            session_state["analytics_result"].get("kpi_cards")):
+            return {
+                "id": active_id,
+                "analytics": session_state["analytics_result"],
+                "daily_sales": session_state.get("daily_sales") or (session_state.get("analytics_result", {}).get("daily_sales") if isinstance(session_state.get("analytics_result"), dict) else None),
+                "mapping": session_state.get("mapping").model_dump() if hasattr(session_state.get("mapping"), "model_dump") else session_state.get("mapping"),
+                "quality_report": session_state.get("quality_report").model_dump() if hasattr(session_state.get("quality_report"), "model_dump") else session_state.get("quality_report"),
+                "confidence": 1.0,
+                "sample_rows": session_state.get("sample_rows", []),
+                "beg_date": session_state.get("beg_date", "2026-09-03"),
+                "end_date": session_state.get("end_date", "2026-09-07")
+            }
             
     campaigns = list_campaign_metadata()
     for c in campaigns:
@@ -418,14 +524,15 @@ def get_current_analysis():
         if data and is_valid_campaign_data(data):
             set_active_campaign_id(cid)
             restore_campaign_session(data)
-            return data
+            return sanitize_analysis_response(data)
             
     if session_state.get("analytics_result") and isinstance(session_state["analytics_result"], dict) and session_state["analytics_result"].get("kpi_cards"):
         return {
             "analytics": session_state["analytics_result"],
-            "mapping": session_state.get("mapping").model_dump() if session_state.get("mapping") else None,
-            "quality_report": session_state.get("quality_report").model_dump() if session_state.get("quality_report") else None,
+            "mapping": session_state.get("mapping").model_dump() if hasattr(session_state.get("mapping"), "model_dump") else session_state.get("mapping"),
+            "quality_report": session_state.get("quality_report").model_dump() if hasattr(session_state.get("quality_report"), "model_dump") else session_state.get("quality_report"),
             "confidence": 1.0,
+            "sample_rows": session_state.get("sample_rows", []),
             "beg_date": session_state.get("beg_date", "2026-09-03"),
             "end_date": session_state.get("end_date", "2026-09-07")
         }
@@ -628,39 +735,182 @@ def load_db_data(beg_date: str = "2026-09-03", end_date: str = "2026-09-07"):
         "analytics": analytics_payload
     }
 
+_STORE_META_CACHE: Dict[str, Dict[str, str]] = {}
+
+def get_store_meta(store_code: str) -> Dict[str, str]:
+    global _STORE_META_CACHE
+    if not _STORE_META_CACHE:
+        try:
+            from app.db import db_connection_scope
+            with db_connection_scope() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT [MAGAZA KODU], [MAGAZA], [TIP] FROM vw_TS_MARKET_DETAILS")
+                for r in cursor.fetchall():
+                    c = normalize_store_code(r[0])
+                    if c:
+                        _STORE_META_CACHE[c] = {
+                            "name": str(r[1]).strip() if r[1] and str(r[1]).strip() != "None" else f"Mağaza {c}",
+                            "tip": str(r[2]).strip() if r[2] and str(r[2]).strip() != "None" else ""
+                        }
+        except Exception:
+            pass
+    return _STORE_META_CACHE.get(store_code, {"name": f"Mağaza {store_code}", "tip": ""})
+
 @app.get("/api/item-detail")
 def get_item_detail(store: str, code: str):
     timeline_df = session_state.get("timeline_df")
     fact_df = session_state.get("fact_df")
     
     if fact_df is None or timeline_df is None:
+        fact_df, timeline_df = ensure_active_fact_df()
+    if fact_df is None or timeline_df is None:
         raise HTTPException(status_code=400, detail="Aktiv təhlil sessiyası yoxdur.")
 
     norm_st = normalize_store_code(store) or store
     norm_cd = normalize_item_code(code) or code
 
-    if store.upper() == "ALL" or not store:
-        item_fact = fact_df[(fact_df['CODE'] == code) | (fact_df['CODE'] == norm_cd)]
-    else:
-        item_fact = fact_df[
-            ((fact_df['STORE'] == store) | (fact_df['STORE'] == norm_st)) &
-            ((fact_df['CODE'] == code) | (fact_df['CODE'] == norm_cd))
-        ]
+    item_fact = fact_df[(fact_df['CODE'] == code) | (fact_df['CODE'] == norm_cd)]
     if item_fact.empty:
         raise HTTPException(status_code=404, detail="Məhsul tapılmadı.")
-        
-    actual_store = str(item_fact.iloc[0]['STORE'])
-    movement = get_item_stock_movement(timeline_df, actual_store, code)
-    row = item_fact.iloc[0]
+
+    is_all_stores = (store.upper() == "ALL" or not store)
     
+    # Fetch store supply type and order status for this item
+    store_meta_map = fetch_single_item_store_details(code)
+    if not store_meta_map and norm_cd != code:
+        store_meta_map = fetch_single_item_store_details(norm_cd)
+
+    # Complete store-level breakdown
+    stores_list = []
+    for _, r in item_fact.iterrows():
+        s_code = normalize_store_code(r['STORE']) or str(r['STORE'])
+        meta = get_store_meta(s_code)
+        s_name = meta.get('name') or f"Mağaza {s_code}"
+        s_tip = meta.get('tip') or str(r.get('STORE_FORMAT', ''))
+        fs = float(r.get('FINAL_STOCK', 0.0))
+        fc_val = float(r.get('FC', 0.0))
+        sale_val = float(r.get('SALE', 0.0))
+        
+        st_details = store_meta_map.get(s_code, {})
+        ord_status = st_details.get("order_status") or str(r.get('STATUS', 'Aktiv'))
+        supply_type = st_details.get("supply_type", "Digər")
+        tedaruk_raw = st_details.get("tedaruk_tipi_raw")
+        is_stout = bool(fs <= 0.0001)
+        stores_list.append({
+            "store_code": s_code,
+            "store_name": s_name,
+            "format": s_tip,
+            "fc": round(fc_val, 2),
+            "sale": round(sale_val, 2),
+            "final_stock": round(fs, 2),
+            "order_status": ord_status,
+            "supply_type": supply_type,
+            "tedaruk_tipi_raw": tedaruk_raw,
+            "is_stockout": is_stout
+        })
+    
+    # Sort: stockout stores first, then by numeric store_code
+    stores_list.sort(key=lambda s: (not s['is_stockout'], int(s['store_code']) if s['store_code'].isdigit() else 9999))
+    
+    stockout_count = sum(1 for s in stores_list if s['is_stockout'])
+    total_stores = len(stores_list)
+    in_stock_count = total_stores - stockout_count
+
+    if is_all_stores:
+        total_fc = float(item_fact['FC'].sum())
+        total_sale = float(item_fact['SALE'].sum())
+        total_stock = float(item_fact['FINAL_STOCK'].sum())
+        ret_store = "ALL"
+        
+        # Aggregate timeline across all stores for this product
+        sub_tl = timeline_df[(timeline_df['CODE'] == code) | (timeline_df['CODE'] == norm_cd)]
+        if not sub_tl.empty:
+            grp = sub_tl.groupby('STOCK_DATE')['STOCK_QTY'].sum().reset_index().sort_values('STOCK_DATE')
+            dates = grp['STOCK_DATE'].astype(str).str[:10].tolist()
+            stocks = grp['STOCK_QTY'].round(2).tolist()
+            depletions = [0.0]
+            for i in range(1, len(stocks)):
+                dep = max(stocks[i-1] - stocks[i], 0.0)
+                depletions.append(round(dep, 2))
+            stockout_dates = [dates[i] for i, s in enumerate(stocks) if s <= 0.0001]
+            movement = {
+                "dates": dates,
+                "stocks": stocks,
+                "depletions": depletions,
+                "opening": stocks[0] if stocks else 0.0,
+                "closing": stocks[-1] if stocks else 0.0,
+                "min_stock": min(stocks) if stocks else 0.0,
+                "max_stock": max(stocks) if stocks else 0.0,
+                "avg_stock": round(float(pd.Series(stocks).mean()), 2) if stocks else 0.0,
+                "stockout_days": len(stockout_dates),
+                "first_stockout_date": stockout_dates[0] if stockout_dates else None
+            }
+        else:
+            all_dates = sorted(timeline_df['STOCK_DATE'].astype(str).str[:10].unique().tolist()) if not timeline_df.empty else []
+            stocks = [total_stock] * len(all_dates)
+            movement = {
+                "dates": all_dates,
+                "stocks": stocks,
+                "depletions": [0.0] * len(all_dates),
+                "opening": total_stock,
+                "closing": total_stock,
+                "min_stock": total_stock,
+                "max_stock": total_stock,
+                "avg_stock": total_stock,
+                "stockout_days": len(all_dates) if total_stock <= 0 else 0,
+                "first_stockout_date": all_dates[0] if all_dates and total_stock <= 0 else None
+            }
+        passiv_cnt = sum(1 for s in stores_list if str(s.get('order_status', '')).upper() in ('PASSIV', 'XEYR', 'QAPALI'))
+        order_status = "Passiv" if (passiv_cnt == total_stores and total_stores > 0) else "Aktiv"
+    else:
+        store_sub = item_fact[(item_fact['STORE'] == store) | (item_fact['STORE'] == norm_st)]
+        if not store_sub.empty:
+            row = store_sub.iloc[0]
+            total_fc = float(row['FC'])
+            total_sale = float(row['SALE'])
+            total_stock = float(row['FINAL_STOCK'])
+            order_status = str(row.get('STATUS', 'Aktiv'))
+        else:
+            total_fc = float(item_fact['FC'].sum())
+            total_sale = float(item_fact['SALE'].sum())
+            total_stock = float(item_fact['FINAL_STOCK'].sum())
+            order_status = "Aktiv"
+        ret_store = norm_st
+        movement = get_item_stock_movement(timeline_df, norm_st, code)
+
+    depo_count = sum(1 for s in stores_list if s.get('supply_type') == 'Depo' or s.get('tedaruk_tipi_raw') == 40)
+    firma_count = sum(1 for s in stores_list if s.get('supply_type') == 'Firma' or s.get('tedaruk_tipi_raw') == 41)
+    sifarissiz_count = sum(1 for s in stores_list if s.get('supply_type') == 'Sifarişsiz' or s.get('tedaruk_tipi_raw') == 42)
+    
+    if depo_count >= firma_count and depo_count >= sifarissiz_count and depo_count > 0:
+        primary_supply_type = "Depo"
+    elif firma_count >= depo_count and firma_count >= sifarissiz_count and firma_count > 0:
+        primary_supply_type = "Firma"
+    elif sifarissiz_count > 0:
+        primary_supply_type = "Sifarişsiz"
+    else:
+        primary_supply_type = "Digər"
+
     return {
-        "store": str(row['STORE']),
-        "code": str(row['CODE']),
-        "name": str(row['NAME']),
-        "fc": float(row['FC']),
-        "sale": float(row['SALE']),
-        "final_stock": float(row['FINAL_STOCK']),
-        "movement": movement
+        "store": ret_store,
+        "code": str(item_fact.iloc[0]['CODE']),
+        "name": str(item_fact.iloc[0]['NAME']),
+        "fc": round(total_fc, 2),
+        "sale": round(total_sale, 2),
+        "final_stock": round(total_stock, 2),
+        "order_status": order_status,
+        "primary_supply_type": primary_supply_type,
+        "supply_counts": {
+            "depo": depo_count,
+            "firma": firma_count,
+            "sifarissiz": sifarissiz_count,
+            "total": total_stores
+        },
+        "movement": movement,
+        "stores": stores_list,
+        "stockout_stores_count": stockout_count,
+        "in_stock_stores_count": in_stock_count,
+        "total_stores_count": total_stores
     }
 
 @app.get("/api/store-daily-stock")
@@ -850,11 +1100,46 @@ def ensure_active_fact_df() -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFra
     timeline_df = session_state.get("timeline_df")
     if fact_df is not None and not fact_df.empty:
         return fact_df, timeline_df
+
+    # Lazy conversion from cached records if available
+    raw_facts = session_state.get("_fact_records")
+    raw_timeline = session_state.get("_timeline_records")
+    if raw_facts:
+        fact_df = pd.DataFrame(raw_facts)
+        fact_df.columns = [str(c).upper() for c in fact_df.columns]
+        if 'ORDER_STATUS' in fact_df.columns:
+            fact_df['STATUS'] = fact_df['ORDER_STATUS']
+        session_state["fact_df"] = fact_df
+        session_state["raw_df"] = fact_df
+    if raw_timeline:
+        timeline_df = pd.DataFrame(raw_timeline)
+        timeline_df.columns = [str(c).upper() for c in timeline_df.columns]
+        session_state["timeline_df"] = timeline_df
+
+    if fact_df is not None and not fact_df.empty:
+        return fact_df, timeline_df
         
     # Attempt to restore active campaign analysis
     get_current_analysis()
     fact_df = session_state.get("fact_df")
     timeline_df = session_state.get("timeline_df")
+    if fact_df is not None and not fact_df.empty:
+        return fact_df, timeline_df
+
+    raw_facts = session_state.get("_fact_records")
+    raw_timeline = session_state.get("_timeline_records")
+    if raw_facts:
+        fact_df = pd.DataFrame(raw_facts)
+        fact_df.columns = [str(c).upper() for c in fact_df.columns]
+        if 'ORDER_STATUS' in fact_df.columns:
+            fact_df['STATUS'] = fact_df['ORDER_STATUS']
+        session_state["fact_df"] = fact_df
+        session_state["raw_df"] = fact_df
+    if raw_timeline:
+        timeline_df = pd.DataFrame(raw_timeline)
+        timeline_df.columns = [str(c).upper() for c in timeline_df.columns]
+        session_state["timeline_df"] = timeline_df
+
     if fact_df is not None and not fact_df.empty:
         return fact_df, timeline_df
         
@@ -957,6 +1242,229 @@ def get_group_analysis_detail_endpoint(
         product=product
     )
  
+@app.get("/api/daily-sales")
+def get_filtered_daily_sales_endpoint(
+    category: Optional[List[str]] = Query(None),
+    family: Optional[List[str]] = Query(None),
+    product: Optional[List[str]] = Query(None),
+    promo_type: Optional[List[str]] = Query(None),
+    origin: Optional[List[str]] = Query(None),
+    insert_format: Optional[List[str]] = Query(None),
+    format: Optional[List[str]] = Query(None),
+    status: Optional[List[str]] = Query(None),
+    area: Optional[List[str]] = Query(None),
+    sub_area: Optional[List[str]] = Query(None),
+    store: Optional[List[str]] = Query(None),
+    supply_type: Optional[List[str]] = Query(None),
+    view_mode: Optional[str] = Query("PCS")
+):
+    fact_df, timeline_df = ensure_active_fact_df()
+    if fact_df is None or fact_df.empty:
+        return []
+
+    def _clean_list(lst: Optional[List[str]]) -> List[str]:
+        if not lst:
+            return []
+        res = []
+        for x in lst:
+            if isinstance(x, str):
+                v = x.strip()
+                if v and v.upper() != "ALL":
+                    res.append(v)
+        return res
+
+    df = fact_df.copy()
+    cats = _clean_list(category)
+    if cats and 'CATEGORY' in df.columns:
+        df = df[df['CATEGORY'].astype(str).str.strip().isin(cats)]
+
+    fams = _clean_list(family)
+    if fams and 'FAMILY' in df.columns:
+        df = df[df['FAMILY'].astype(str).str.strip().isin(fams)]
+
+    pts = _clean_list(promo_type)
+    if pts and 'PROMO_TYPE' in df.columns:
+        df = df[df['PROMO_TYPE'].astype(str).str.strip().isin(pts)]
+
+    origs = _clean_list(origin)
+    if origs and 'ORIGIN' in df.columns:
+        df = df[df['ORIGIN'].astype(str).str.strip().isin(origs)]
+
+    ifmts = _clean_list(insert_format)
+    if ifmts and 'INSERT_FORMAT' in df.columns:
+        df = df[df['INSERT_FORMAT'].astype(str).str.strip().isin(ifmts)]
+
+    fmts = _clean_list(format)
+    if fmts and 'STORE_FORMAT' in df.columns:
+        df = df[df['STORE_FORMAT'].astype(str).str.strip().isin(fmts)]
+
+    statuses = _clean_list(status)
+    if statuses and 'STATUS' in df.columns:
+        norm_statuses = [st.lower() for st in statuses]
+        df = df[df['STATUS'].astype(str).str.strip().str.lower().isin(norm_statuses)]
+
+    prods = _clean_list(product)
+    if prods:
+        norm_prods = [normalize_item_code(p) or p for p in prods]
+        cond = df['CODE'].astype(str).str.strip().isin(prods) | df['CODE'].astype(str).str.strip().isin(norm_prods)
+        if 'NAME' in df.columns:
+            cond = cond | df['NAME'].astype(str).str.strip().isin(prods)
+        df = df[cond]
+
+    stypes = _clean_list(supply_type)
+    if stypes:
+        supply_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "item_supply_types.json")
+        if os.path.exists(supply_file):
+            try:
+                with open(supply_file, "r", encoding="utf-8") as f:
+                    st_json = json.load(f)
+                    st_labels = st_json.get("labels", {})
+                    st_raw = st_json.get("raw_codes", {})
+                
+                wanted_codes = set()
+                for wanted in stypes:
+                    w = wanted.lower().strip()
+                    for code, lbl in st_labels.items():
+                        l = str(lbl).lower()
+                        raw = str(st_raw.get(code, ''))
+                        if ('depo' in w or w == '40') and ('depo' in l or raw == '40'):
+                            wanted_codes.add(str(code))
+                        elif ('firma' in w or w == '41') and ('firma' in l or raw == '41'):
+                            wanted_codes.add(str(code))
+                        elif ('sifaris' in w or 'sifariş' in w or w == '42') and ('sifaris' in l or 'sifariş' in l or raw == '42'):
+                            wanted_codes.add(str(code))
+                        elif w in l or l in w:
+                            wanted_codes.add(str(code))
+                if wanted_codes:
+                    df = df[df['CODE'].astype(str).str.strip().isin(wanted_codes)]
+                else:
+                    df = df.iloc[0:0]
+            except Exception as e:
+                print(f"Error filtering by supply_type in daily sales: {e}")
+
+    areas = _clean_list(area)
+    if areas and 'AREA' in df.columns:
+        df = df[df['AREA'].astype(str).str.strip().isin(areas)]
+
+    sub_areas = _clean_list(sub_area)
+    if sub_areas and 'SUB_AREA' in df.columns:
+        df = df[df['SUB_AREA'].astype(str).str.strip().isin(sub_areas)]
+
+    stores = _clean_list(store)
+    if stores and 'STORE' in df.columns:
+        norm_stores = [normalize_store_code(s) or s.lstrip('0') for s in stores]
+        df_norm_stores = df['STORE'].astype(str).str.strip().map(lambda s: normalize_store_code(s) or s.lstrip('0'))
+        df = df[df_norm_stores.isin(norm_stores)]
+
+    if df.empty:
+        return []
+
+    filtered_fc = float(df['FC'].sum()) if 'FC' in df.columns else 0.0
+    filtered_fc_azn = float(df['FC_MEBLEG'].sum()) if 'FC_MEBLEG' in df.columns else 0.0
+
+    beg_date = session_state.get("beg_date")
+    end_date = session_state.get("end_date")
+    as_of_date = session_state.get("as_of_date")
+    cid = session_state.get("active_campaign_id")
+
+    # Cached promo sales dataframe for rapid in-memory filtering
+    from app.db import SALES_PARQUET
+    if os.path.exists(SALES_PARQUET) and beg_date and end_date:
+        if session_state.get("_cached_sales_cid") != cid or session_state.get("_promo_sales_df") is None:
+            try:
+                all_codes = list(fact_df['CODE'].astype(str).unique())
+                session_state["_promo_sales_df"] = pd.read_parquet(
+                    SALES_PARQUET,
+                    engine='pyarrow',
+                    filters=[
+                        ('sale_date', '>=', beg_date),
+                        ('sale_date', '<=', end_date),
+                        ('item_code', 'in', all_codes)
+                    ]
+                )
+                session_state["_cached_sales_cid"] = cid
+            except Exception as e:
+                print(f"Error reading SALES_PARQUET for daily sales: {e}")
+                session_state["_promo_sales_df"] = None
+
+    matched_sales = None
+    promo_sales = session_state.get("_promo_sales_df")
+    if promo_sales is not None and not promo_sales.empty:
+        norm_st_set = set(df['STORE'].astype(str).str.strip().str.lstrip('0').unique())
+        norm_cd_set = set(df['CODE'].astype(str).str.strip().unique())
+        matched_sales = promo_sales[
+            promo_sales['item_code'].astype(str).str.strip().isin(norm_cd_set) &
+            promo_sales['store_code'].astype(str).str.strip().str.lstrip('0').isin(norm_st_set)
+        ]
+
+    series = calculate_daily_sales_series(
+        db_df=matched_sales,
+        fact_df=df,
+        beg_date=beg_date,
+        end_date=end_date,
+        total_fc=filtered_fc,
+        total_fc_azn=filtered_fc_azn,
+        as_of_date=as_of_date
+    )
+
+    if series is None:
+        # Graceful scaling fallback from overall campaign daily_sales
+        camp_daily = session_state.get("analytics_result", {}).get("daily_sales") or []
+        if camp_daily:
+            total_camp_sale = float(fact_df['SALE'].sum()) if 'SALE' in fact_df.columns else 1.0
+            filtered_sale = float(df['SALE'].sum()) if 'SALE' in df.columns else 0.0
+            scale_ratio = (filtered_sale / total_camp_sale) if total_camp_sale > 0 else 0.0
+
+            running_qty = 0.0
+            running_amt = 0.0
+            series = []
+            for d in camp_daily:
+                is_null = (d.get("daily_sale") is None)
+                day_qty = round(float(d.get("daily_sale", 0.0)) * scale_ratio, 2) if not is_null else None
+                day_amt = round(float(d.get("daily_amount", 0.0)) * scale_ratio, 2) if not is_null else None
+
+                if not is_null:
+                    running_qty += (day_qty or 0.0)
+                    running_amt += (day_amt or 0.0)
+                    cum_pct = round((running_qty / filtered_fc * 100.0), 2) if filtered_fc > 0 else 0.0
+                    cum_amt_pct = round((running_amt / filtered_fc_azn * 100.0), 2) if filtered_fc_azn > 0 else 0.0
+                    d_pct = round(((day_qty or 0.0) / filtered_fc * 100.0), 2) if filtered_fc > 0 else 0.0
+                    d_amt_pct = round(((day_amt or 0.0) / filtered_fc_azn * 100.0), 2) if filtered_fc_azn > 0 else 0.0
+                else:
+                    cum_pct = None
+                    cum_amt_pct = None
+                    d_pct = None
+                    d_amt_pct = None
+
+                series.append({
+                    "day": d.get("day"),
+                    "date": d.get("date"),
+                    "daily_sale": day_qty,
+                    "daily_amount": day_amt,
+                    "daily_pct": d_pct,
+                    "daily_amount_pct": d_amt_pct,
+                    "cumulative_pct": cum_pct,
+                    "cumulative_amount_pct": cum_amt_pct,
+                    "ideal_pct": d.get("ideal_pct"),
+                    "partial": d.get("partial", False),
+                    "is_future": d.get("is_future", False)
+                })
+
+    # Ensure all numbers are JSON-compliant native python types
+    clean_series = []
+    for row in (series or []):
+        clean_row = {}
+        for k, v in row.items():
+            if v is not None and hasattr(v, 'item'):
+                clean_row[k] = v.item()
+            elif isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+                clean_row[k] = None
+            else:
+                clean_row[k] = v
+        clean_series.append(clean_row)
+
+    return clean_series
+
 @app.get("/api/promo-uplift")
 def get_promo_uplift_endpoint(
     category: Optional[str] = None,
@@ -1022,9 +1530,9 @@ def export_pdf():
         raise HTTPException(status_code=400, detail="İxrac üçün aktiv təhlil yoxdur.")
         
     campaign_meta = {
-        "beg_date": session_state.get("beg_date", "2026-10-15"),
-        "end_date": session_state.get("end_date", "2026-10-28"),
-        "campaign_id": session_state.get("active_campaign_name") or session_state.get("active_campaign_id") or "15-28 Promo Campaign"
+        "beg_date": session_state.get("beg_date", "2026-10-29"),
+        "end_date": session_state.get("end_date", "2026-11-11"),
+        "campaign_id": session_state.get("active_campaign_name") or session_state.get("active_campaign_id") or "Promo Kampaniyası"
     }
     buffer = generate_pdf_report(analytics_res, campaign_meta=campaign_meta)
     return Response(
@@ -1085,6 +1593,10 @@ def process_analytics(
             st_agg_kwargs['st_area'] = ('AREA', 'first')
         if 'SUB_AREA' in df_work.columns:
             st_agg_kwargs['st_sub_area'] = ('SUB_AREA', 'first')
+        if 'STORE_FORMAT' in df_work.columns:
+            st_agg_kwargs['st_format'] = ('STORE_FORMAT', 'first')
+        if 'STATUS' in df_work.columns:
+            st_agg_kwargs['st_status'] = ('STATUS', 'first')
 
         st_agg = df_work.groupby('STORE', as_index=False).agg(**st_agg_kwargs)
 
@@ -1102,8 +1614,12 @@ def process_analytics(
 
             raw_area = r.get('st_area')
             raw_sub_area = r.get('st_sub_area')
+            raw_format = r.get('st_format')
+            raw_status = r.get('st_status')
             s_area = str(raw_area) if raw_area is not None and str(raw_area).strip() not in ('nan', 'None', '') else None
             s_sub_area = str(raw_sub_area) if raw_sub_area is not None and str(raw_sub_area).strip() not in ('nan', 'None', '') else None
+            s_format = str(raw_format) if raw_format is not None and str(raw_format).strip() not in ('nan', 'None', '') else None
+            s_status_val = str(raw_status) if raw_status is not None and str(raw_status).strip() not in ('nan', 'None', '') else ('Aktiv' if (st_sale > 0 or st_stock > 0 or st_fc > 0) else 'Passiv')
 
             st_ach = round((st_sale / st_fc) * 100.0, 1) if st_fc > 0 else None
             st_stout_pct = round((st_stout / p_cnt) * 100.0, 1) if p_cnt > 0 else 0.0
@@ -1116,6 +1632,8 @@ def process_analytics(
                 "store": st_name,
                 "area": s_area,
                 "sub_area": s_sub_area,
+                "format": s_format,
+                "status": s_status_val,
                 "product_count": p_cnt,
                 "total_fc": round(st_fc, 1),
                 "total_fc_azn": round(st_fc_azn, 1),
@@ -1150,6 +1668,12 @@ def process_analytics(
         df_prod['stout_flag'] = (df_prod['FINAL_STOCK'] <= 0.0001).astype(int)
         df_prod['u_flag'] = (df_prod['FC'] > df_prod['SALE']).astype(int)
         df_prod['o_flag'] = (df_prod['SALE'] > df_prod['FC']).astype(int)
+        if 'STATUS' in df_prod.columns:
+            df_prod['is_active_status'] = (df_prod['STATUS'].astype(str).str.upper().isin(['AKTIV', 'BELI', 'AÇIQ', 'ACIQ'])).astype(int)
+            df_prod['is_passive_status'] = (df_prod['STATUS'].astype(str).str.upper().isin(['PASSIV', 'PASIF', 'XEYR', 'QAPALI'])).astype(int)
+        else:
+            df_prod['is_active_status'] = 1
+            df_prod['is_passive_status'] = 0
         if 'DISTRIBUTION_QTY' not in df_prod.columns:
             df_prod['DISTRIBUTION_QTY'] = df_prod['SALE'] + df_prod['FINAL_STOCK']
         if 'FC_MEBLEG' not in df_prod.columns:
@@ -1157,6 +1681,8 @@ def process_analytics(
 
         agg_kwargs = dict(
             store_count=('STORE', 'count'),
+            active_store_count=('is_active_status', 'sum'),
+            passive_store_count=('is_passive_status', 'sum'),
             p_fc=('FC', 'sum'),
             p_fc_azn=('FC_MEBLEG', 'sum'),
             p_sale=('SALE', 'sum'),
@@ -1174,6 +1700,14 @@ def process_analytics(
             agg_kwargs['p_sub_category'] = ('SUB_CATEGORY', 'first')
         if 'FAMILY' in df_prod.columns:
             agg_kwargs['p_family'] = ('FAMILY', 'first')
+        if 'ORIGIN' in df_prod.columns:
+            agg_kwargs['p_origin'] = ('ORIGIN', 'first')
+        if 'INSERT_FORMAT' in df_prod.columns:
+            agg_kwargs['p_insert_format'] = ('INSERT_FORMAT', 'first')
+        if 'STATUS' in df_prod.columns:
+            agg_kwargs['p_status'] = ('STATUS', 'first')
+        if 'EXCEL_STORE_COUNT' in df_prod.columns:
+            agg_kwargs['p_excel_store_count'] = ('EXCEL_STORE_COUNT', 'first')
 
         p_agg = df_prod.groupby(['CODE', 'NAME'], as_index=False).agg(**agg_kwargs)
 
@@ -1194,10 +1728,31 @@ def process_analytics(
             raw_cat = r.get('p_category')
             raw_subcat = r.get('p_sub_category')
             raw_fam = r.get('p_family')
+            raw_origin = r.get('p_origin')
+            raw_insert_format = r.get('p_insert_format')
+            raw_status = r.get('p_status')
+            raw_excel_store_count = r.get('p_excel_store_count')
 
             p_cat = str(raw_cat) if raw_cat is not None and str(raw_cat).strip() not in ('nan', 'None', '') else None
             p_subcat = str(raw_subcat) if raw_subcat is not None and str(raw_subcat).strip() not in ('nan', 'None', '') else None
             p_fam = str(raw_fam) if raw_fam is not None and str(raw_fam).strip() not in ('nan', 'None', '') else None
+            p_origin = str(raw_origin) if raw_origin is not None and str(raw_origin).strip() not in ('nan', 'None', '') else None
+            p_insert_format = str(raw_insert_format) if raw_insert_format is not None and str(raw_insert_format).strip() not in ('nan', 'None', '') else None
+            act_stores = int(r.get('active_store_count', s_cnt))
+            pas_stores = int(r.get('passive_store_count', 0))
+            if pas_stores == s_cnt and s_cnt > 0:
+                p_status_val = 'Passiv'
+            elif pas_stores > 0:
+                p_status_val = f'Aktiv ({pas_stores} qapalı)'
+            else:
+                p_status_val = 'Aktiv'
+
+            try:
+                esc = int(raw_excel_store_count) if raw_excel_store_count is not None and pd.notnull(raw_excel_store_count) and int(raw_excel_store_count) > 0 else None
+            except (ValueError, TypeError):
+                esc = None
+            if not esc:
+                esc = 109 if p_insert_format == 'SCM' else (91 if p_insert_format == 'SC' else (69 if p_insert_format == 'S' else s_cnt))
 
             p_ach = round((p_sale / p_fc) * 100.0, 1) if p_fc > 0 else None
             denom = p_sale + p_stock
@@ -1216,7 +1771,13 @@ def process_analytics(
                 "category": p_cat,
                 "sub_category": p_subcat,
                 "family": p_fam,
+                "origin": p_origin,
+                "insert_format": p_insert_format,
+                "status": p_status_val,
                 "store_count": s_cnt,
+                "active_store_count": act_stores,
+                "passive_store_count": pas_stores,
+                "excel_store_count": esc,
                 "total_fc": round(p_fc, 1),
                 "total_fc_azn": round(p_fc_azn, 1),
                 "total_sale": round(p_sale, 1),
@@ -1361,6 +1922,10 @@ def process_analytics(
         "categories": sorted(list(set(fact_df['CATEGORY'].dropna().astype(str).str.strip()))) if 'CATEGORY' in fact_df.columns else [],
         "areas": sorted(list(set(fact_df['AREA'].dropna().astype(str).str.strip()))) if 'AREA' in fact_df.columns else [],
         "families": sorted(list(set(fact_df['FAMILY'].dropna().astype(str).str.strip()))) if 'FAMILY' in fact_df.columns else [],
-        "sub_areas": sorted(list(set(fact_df['SUB_AREA'].dropna().astype(str).str.strip()))) if 'SUB_AREA' in fact_df.columns else []
+        "sub_areas": sorted(list(set(fact_df['SUB_AREA'].dropna().astype(str).str.strip()))) if 'SUB_AREA' in fact_df.columns else [],
+        "origins": sorted(list(set(fact_df['ORIGIN'].dropna().astype(str).str.strip()))) if 'ORIGIN' in fact_df.columns else [],
+        "insert_formats": sorted(list(set(fact_df['INSERT_FORMAT'].dropna().astype(str).str.strip()))) if 'INSERT_FORMAT' in fact_df.columns else [],
+        "formats": sorted(list(set(fact_df['STORE_FORMAT'].dropna().astype(str).str.strip()))) if 'STORE_FORMAT' in fact_df.columns else [],
+        "statuses": sorted(list(set(fact_df['STATUS'].dropna().astype(str).str.strip()))) if 'STATUS' in fact_df.columns else ["Aktiv", "Passiv"]
     })
 

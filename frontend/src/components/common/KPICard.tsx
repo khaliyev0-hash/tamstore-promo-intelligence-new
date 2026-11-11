@@ -34,16 +34,13 @@ export const KPICard: React.FC<KPICardProps> = ({
   const calculatedDelay = delayMs !== undefined ? delayMs : index * 70;
 
   const cardRef = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isHovered, setIsHovered] = useState<boolean>(false);
 
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!cardRef.current) return;
     const rect = cardRef.current.getBoundingClientRect();
-    setPosition({
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
-    });
+    cardRef.current.style.setProperty('--mouse-x', `${e.clientX - rect.left}px`);
+    cardRef.current.style.setProperty('--mouse-y', `${e.clientY - rect.top}px`);
   }, []);
 
   const handleMouseEnter = useCallback(() => setIsHovered(true), []);
@@ -61,13 +58,13 @@ export const KPICard: React.FC<KPICardProps> = ({
       slate: 'bg-gradient-to-br from-slate-600 via-slate-700 to-slate-800 text-white shadow-lg shadow-slate-500/35 ring-2 ring-slate-400/30',
     },
     soft: {
-      blue: 'bg-gradient-to-br from-blue-50 via-blue-100 to-blue-200/90 text-blue-600 border border-blue-300/80 shadow-md shadow-blue-500/20 ring-2 ring-blue-400/25',
-      emerald: 'bg-gradient-to-br from-emerald-50 via-emerald-100 to-emerald-200/90 text-emerald-700 border border-emerald-300/80 shadow-md shadow-emerald-500/20 ring-2 ring-emerald-400/25',
-      amber: 'bg-gradient-to-br from-amber-50 via-amber-100 to-amber-200/90 text-amber-800 border border-amber-300/80 shadow-md shadow-amber-500/20 ring-2 ring-amber-400/25',
-      rose: 'bg-gradient-to-br from-rose-50 via-rose-100 to-rose-200/90 text-rose-700 border border-rose-300/80 shadow-md shadow-rose-500/20 ring-2 ring-rose-400/25',
-      indigo: 'bg-gradient-to-br from-indigo-50 via-indigo-100 to-indigo-200/90 text-indigo-700 border border-indigo-300/80 shadow-md shadow-indigo-500/20 ring-2 ring-indigo-400/25',
-      purple: 'bg-gradient-to-br from-purple-50 via-purple-100 to-purple-200/90 text-purple-700 border border-purple-300/80 shadow-md shadow-purple-500/20 ring-2 ring-purple-400/25',
-      slate: 'bg-gradient-to-br from-slate-100 via-slate-200 to-slate-300/80 text-slate-700 border border-slate-300 shadow-md shadow-slate-400/20 ring-2 ring-slate-300/30',
+      blue: 'bg-gradient-to-br from-blue-50 via-blue-100 to-blue-200/90 dark:from-blue-950/90 dark:via-blue-900/60 dark:to-blue-800/40 text-blue-600 dark:text-blue-300 border border-blue-300/80 dark:border-blue-700/60 shadow-md shadow-blue-500/20 ring-2 ring-blue-400/25',
+      emerald: 'bg-gradient-to-br from-emerald-50 via-emerald-100 to-emerald-200/90 dark:from-emerald-950/90 dark:via-emerald-900/60 dark:to-emerald-800/40 text-emerald-700 dark:text-emerald-300 border border-emerald-300/80 dark:border-emerald-700/60 shadow-md shadow-emerald-500/20 ring-2 ring-emerald-400/25',
+      amber: 'bg-gradient-to-br from-amber-50 via-amber-100 to-amber-200/90 dark:from-amber-950/90 dark:via-amber-900/60 dark:to-amber-800/40 text-amber-800 dark:text-amber-300 border border-amber-300/80 dark:border-amber-700/60 shadow-md shadow-amber-500/20 ring-2 ring-amber-400/25',
+      rose: 'bg-gradient-to-br from-rose-50 via-rose-100 to-rose-200/90 dark:from-rose-950/90 dark:via-rose-900/60 dark:to-rose-800/40 text-rose-700 dark:text-rose-300 border border-rose-300/80 dark:border-rose-700/60 shadow-md shadow-rose-500/20 ring-2 ring-rose-400/25',
+      indigo: 'bg-gradient-to-br from-indigo-50 via-indigo-100 to-indigo-200/90 dark:from-indigo-950/90 dark:via-indigo-900/60 dark:to-indigo-800/40 text-indigo-700 dark:text-indigo-300 border border-indigo-300/80 dark:border-indigo-700/60 shadow-md shadow-indigo-500/20 ring-2 ring-indigo-400/25',
+      purple: 'bg-gradient-to-br from-purple-50 via-purple-100 to-purple-200/90 dark:from-purple-950/90 dark:via-purple-900/60 dark:to-purple-800/40 text-purple-700 dark:text-purple-300 border border-purple-300/80 dark:border-purple-700/60 shadow-md shadow-purple-500/20 ring-2 ring-purple-400/25',
+      slate: 'bg-gradient-to-br from-slate-100 via-slate-200 to-slate-300/80 dark:from-slate-800 dark:via-slate-800/80 dark:to-slate-700/50 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 shadow-md shadow-slate-400/20 ring-2 ring-slate-300/30',
     }
   };
 
@@ -133,18 +130,21 @@ export const KPICard: React.FC<KPICardProps> = ({
       onMouseMove={handleMouseMove}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      className={`relative p-4 rounded-2xl bg-white/85 dark:bg-slate-900/80 backdrop-blur-md border border-slate-200/90 dark:border-slate-800/90 shadow-md shadow-slate-200/50 dark:shadow-none ${luminousBorderClass || cardGlowMap[color]} card-hover animate-card-stagger flex flex-col justify-between space-y-3 transition-all duration-300 group/card overflow-hidden`}
+      className={`relative p-4 rounded-2xl bg-white/85 dark:bg-slate-900/90 backdrop-blur-md border border-slate-200/90 dark:border-slate-800 shadow-md shadow-slate-200/50 dark:shadow-none ${luminousBorderClass || cardGlowMap[color]} card-hover animate-card-stagger flex flex-col justify-between space-y-2.5 transition-all duration-300 group/card overflow-hidden`}
       style={{ animationDelay: `${calculatedDelay}ms` }}
     >
       {/* Top delicate illuminated gradient line (permanent soft luminescence, lights up on hover) */}
       <div className={`absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r ${topLineMap[color]} opacity-50 group-hover/card:opacity-100 transition-opacity duration-300 z-10 shadow-xs`} />
 
-      {/* Reactive 3D Cursor-Tracking Neon Spotlight Layer */}
+      {/* Specular Inner Edge Light */}
+      <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-white/80 dark:via-white/20 to-transparent pointer-events-none z-10" />
+
+      {/* Reactive Cursor-Tracking Neon Spotlight Layer */}
       <div
         className="pointer-events-none absolute -inset-px transition-opacity duration-300 z-0"
         style={{
           opacity: isHovered ? 1 : 0,
-          background: `radial-gradient(280px circle at ${position.x}px ${position.y}px, ${spotlightColorMap[color]}, transparent 75%)`,
+          background: `radial-gradient(280px circle at var(--mouse-x, -999px) var(--mouse-y, -999px), ${spotlightColorMap[color]}, transparent 75%)`,
         }}
       />
 
@@ -159,11 +159,16 @@ export const KPICard: React.FC<KPICardProps> = ({
           <span className="absolute w-1.5 h-1.5 rounded-full bg-amber-300 shadow-md animate-[sparkleBurst6_0.6s_ease-out_forwards]" />
         </div>
       )}
+
+      {/* Header Row: Title with Live Status LED & Icon Box */}
       <div className="flex items-center justify-between relative z-10">
-        <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400 tracking-wider uppercase">{title}</span>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${pingBgMap[color]} animate-pulse`} />
+          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-300 tracking-normal uppercase truncate">{title}</span>
+        </div>
         
         {/* Animated & Illuminated Glowing Icon Container */}
-        <div className="relative group/icon">
+        <div className="relative group/icon shrink-0">
           {/* Animated Pulsing Ring */}
           <span
             className={`absolute inset-0 rounded-xl animate-ping opacity-25 ${pingBgMap[color]}`}
@@ -180,28 +185,31 @@ export const KPICard: React.FC<KPICardProps> = ({
         </div>
       </div>
 
-      <div className="flex items-baseline justify-between pt-1 relative z-10">
-        <h3 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight font-sans tabular-nums">{animatedValue}</h3>
+      {/* Metric Value & Optional Compact Trend Badge */}
+      <div className="flex items-baseline justify-between pt-0.5 relative z-10 min-w-0">
+        <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight font-sans tabular-nums whitespace-nowrap truncate">{animatedValue}</h3>
         {trend && (
-          <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-100/80 dark:bg-emerald-950/80 dark:text-emerald-300 dark:border-emerald-800 px-2 py-0.5 rounded-full border border-emerald-300 shadow-xs flex items-center gap-1 neon-pulse-emerald">
+          <span className="text-[10px] font-extrabold text-emerald-800 bg-emerald-100/90 dark:bg-emerald-950/80 dark:text-emerald-300 dark:border-emerald-800 px-2 py-0.5 rounded-full border border-emerald-300 shadow-xs flex items-center gap-1 neon-pulse-emerald shrink-0 ml-2">
             {trend}
           </span>
         )}
       </div>
 
+      {/* Full-Width Smooth Fluid Waveform Sparkline */}
       {sparklineData && sparklineData.length > 1 && (
-        <div className="pt-0.5 relative z-10">
+        <div className="pt-0.5 relative z-10 w-full overflow-hidden">
           <Sparkline
             data={sparklineData}
             color={color === 'slate' ? 'blue' : color}
-            height={26}
+            height={28}
+            fullWidth={true}
           />
         </div>
       )}
 
       {subtext && (
-        <div className="pt-1 border-t border-slate-100/80 dark:border-slate-800 flex items-center justify-between relative z-10">
-          <p className="text-[10px] font-medium text-slate-400 dark:text-slate-400">{subtext}</p>
+        <div className="pt-1 border-t border-slate-100/90 dark:border-slate-800/90 flex items-center justify-between relative z-10">
+          <p className="text-[10px] font-semibold text-slate-500 dark:text-slate-300 truncate">{subtext}</p>
         </div>
       )}
     </div>

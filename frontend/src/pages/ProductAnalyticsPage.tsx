@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useData } from '../context/DataContext';
-import { isPromoTypeMatch } from '../utils/filterUtils';
+import { isPromoTypeMatch, isProductMatchGlobalFilters } from '../utils/filterUtils';
 import { SortableHeader } from '../components/common/SortableHeader';
 import { Sparkline, generateDeterministicSparkline } from '../components/common/Sparkline';
 
@@ -16,17 +16,18 @@ export const ProductAnalyticsPage: React.FC = () => {
   const { product_performances } = data;
 
   const filteredProducts = product_performances.filter((p) => {
-    if (filters.selectedProduct && p.code !== filters.selectedProduct) return false;
-    if (filters.selectedCategory && filters.selectedCategory !== 'ALL' && p.category !== filters.selectedCategory) return false;
-    if (filters.selectedFamily && filters.selectedFamily !== 'ALL' && p.family !== filters.selectedFamily) return false;
+    if (!isProductMatchGlobalFilters(p, filters)) return false;
     if (filters.abcClass !== 'ALL' && p.abc_class !== filters.abcClass) return false;
-    if (filters.promoType && filters.promoType !== 'ALL' && !isPromoTypeMatch(p, filters.promoType)) return false;
     if (filters.searchQuery) {
       const q = filters.searchQuery.toLowerCase();
       if (!p.name.toLowerCase().includes(q) && !p.code.toLowerCase().includes(q)) return false;
     }
     return true;
   });
+
+  const getExcelStoreCount = (p: (typeof product_performances)[0]) => {
+    return p.excel_store_count ?? (p.insert_format === 'SCM' ? 109 : p.insert_format === 'SC' ? 91 : p.insert_format === 'S' ? 69 : p.store_count);
+  };
 
   const sortedProducts = [...filteredProducts].sort((a: any, b: any) => {
     let valA = a[sortField];
@@ -35,6 +36,9 @@ export const ProductAnalyticsPage: React.FC = () => {
     if (sortField === 'total_distribution_qty') {
       valA = a.total_distribution_qty ?? ((a.total_sale || 0) + (a.total_stock || 0));
       valB = b.total_distribution_qty ?? ((b.total_sale || 0) + (b.total_stock || 0));
+    } else if (sortField === 'excel_store_count') {
+      valA = getExcelStoreCount(a);
+      valB = getExcelStoreCount(b);
     }
 
     if (valA === null || valA === undefined) valA = sortAsc ? Infinity : -Infinity;
@@ -60,7 +64,7 @@ export const ProductAnalyticsPage: React.FC = () => {
       setSortAsc(!sortAsc);
     } else {
       setSortField(field);
-      const isStringField = field === 'code' || field === 'name';
+      const isStringField = field === 'code' || field === 'name' || field === 'insert_format';
       setSortAsc(isStringField);
     }
   };
@@ -69,10 +73,30 @@ export const ProductAnalyticsPage: React.FC = () => {
 
   return (
     <div className="space-y-6 pb-12 text-xs">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-slate-900 dark:text-white">Məhsul Analitikası (Product Analytics)</h2>
           <p className="text-xs text-slate-500 dark:text-slate-400">Promosiyada olan bütün məhsulların reallaşma və stokout göstəriciləri</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {([
+            { fmt: 'SCM', stores: 109 },
+            { fmt: 'SC', stores: 91 },
+            { fmt: 'S', stores: 69 },
+          ] as const).map(({ fmt, stores }) => {
+            const cnt = filteredProducts.filter((p) => p.insert_format === fmt).length;
+            if (cnt === 0) return null;
+            return (
+              <span
+                key={fmt}
+                className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl text-xs font-medium bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-2xs"
+              >
+                <span className="font-bold text-slate-800 dark:text-slate-100">{fmt}:</span>
+                <span className="text-blue-600 dark:text-blue-400 font-mono font-bold">{cnt} məhsul</span>
+                <span className="text-slate-500 dark:text-slate-400 font-mono text-[11px]">({stores} mağaza)</span>
+              </span>
+            );
+          })}
         </div>
       </div>
 
@@ -83,7 +107,9 @@ export const ProductAnalyticsPage: React.FC = () => {
               <tr>
                 <SortableHeader label="Kod" field="code" currentSortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="left" />
                 <SortableHeader label="Məhsul Adı" field="name" currentSortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="left" />
-                <SortableHeader label="Mağaza Sayı" field="store_count" currentSortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="center" />
+                <SortableHeader label="İnsert Formatı" field="insert_format" currentSortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="center" />
+                <SortableHeader label="Excel Mağaza Sayı" field="excel_store_count" currentSortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="center" />
+                <SortableHeader label="Aktiv Mağaza Sayı" field="active_store_count" currentSortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="center" />
                 <SortableHeader label="Dağılım Miqdarı" field="total_distribution_qty" currentSortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="right" />
                 <SortableHeader label="FC (Proqnoz)" field="total_fc" currentSortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="right" />
                 <SortableHeader label="SALE (Satış)" field="total_sale" currentSortField={sortField} sortAsc={sortAsc} onSort={handleSort} align="right" />
@@ -120,7 +146,43 @@ export const ProductAnalyticsPage: React.FC = () => {
                         )}
                       </div>
                     </td>
-                    <td className="p-3 text-center font-mono font-semibold text-slate-700 dark:text-slate-300">{p.store_count}</td>
+                    <td className="p-3 text-center">
+                      {p.insert_format ? (
+                        <span
+                          className={`inline-flex items-center justify-center px-2 py-0.5 rounded text-[11px] font-bold font-mono tracking-wider border shadow-2xs ${
+                            p.insert_format === 'SCM'
+                              ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                              : p.insert_format === 'SC'
+                              ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                              : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                          }`}
+                        >
+                          {p.insert_format}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 dark:text-slate-600">-</span>
+                      )}
+                    </td>
+                    <td className="p-3 text-center font-mono font-bold text-slate-800 dark:text-slate-200">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800/80 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 font-mono font-bold">
+                        {getExcelStoreCount(p)}
+                      </span>
+                    </td>
+                    <td className="p-3 text-center font-mono">
+                      <div className="inline-flex items-center justify-center gap-1.5">
+                        <span className="font-bold text-slate-800 dark:text-slate-200">
+                          {p.active_store_count ?? p.store_count}
+                        </span>
+                        {(p.passive_store_count ?? 0) > 0 && (
+                          <span
+                            className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800"
+                            title={`${p.passive_store_count} mağazada sifarişə qapalıdır (Passiv)`}
+                          >
+                            +{p.passive_store_count} qapalı
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="p-3 text-right font-mono font-bold text-blue-700 dark:text-blue-300">{(p.total_distribution_qty ?? (p.total_sale + p.total_stock)).toLocaleString()}</td>
                     <td className="p-3 text-right font-mono text-slate-700 dark:text-slate-300">{p.total_fc.toLocaleString()}</td>
                     <td className="p-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">{p.total_sale.toLocaleString()}</td>
@@ -146,7 +208,7 @@ export const ProductAnalyticsPage: React.FC = () => {
               })}
               {sortedProducts.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">Süzgəclərə uyğun heç bir məhsul tapılmadı.</td>
+                  <td colSpan={12} className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">Süzgəclərə uyğun heç bir məhsul tapılmadı.</td>
                 </tr>
               )}
             </tbody>

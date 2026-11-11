@@ -1,4 +1,5 @@
 import os
+import time
 import pyodbc
 import pandas as pd
 from typing import Optional, Dict, Any, Tuple, List, Set
@@ -28,6 +29,7 @@ DB_PWD = os.getenv("DB_PWD", "l@n_pl@n!ng202%")
 PARQUET_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "parquet_cache")
 STOCK_PARQUET = os.path.join(PARQUET_DIR, "stock_snapshot.parquet")
 SALES_PARQUET = os.path.join(PARQUET_DIR, "sales_snapshot.parquet")
+ITEM_STORE_STATUS_PARQUET = os.path.join(PARQUET_DIR, "item_store_status.parquet")
 
 from contextlib import contextmanager
 
@@ -101,7 +103,7 @@ def get_active_store_codes(
     
     Rules:
     - keep only stores where [MAGAZA STATUSU] is in status_include (default: STORE_STATUS_INCLUDE in .env, 'AKTIV')
-    - exclude stores where [TIP] is in type_exclude (default: STORE_TYPE_EXCLUDE in .env, 'BLANK', 'MINI', 'REGION MINI')
+    - exclude stores where [TIP] is in type_exclude (default: STORE_TYPE_EXCLUDE in .env, 'BLANK')
     - NULL/empty [TIP] is NOT excluded (only literal excluded values are); counted in null_type_kept
     - If a store has duplicate rows: it is active only if its rows agree on status and type;
       if they conflict, treat as NOT active and list those stores in dropped_conflicting.
@@ -234,6 +236,89 @@ def get_active_store_codes(
 
     return active_set, breakdown
 
+def fetch_sales_from_sql(start_date: str, end_date: str, conn=None) -> pd.DataFrame:
+    """
+    Unified High-Reliability Sales Fetcher:
+    - Fetches sales from fnc_TS_SALES_REPORT_FOR_PLANNING (Logo ERP).
+    - Checks daily row counts; for any date with < 5,000 rows (meaning Logo ERP retail
+      cash register import hasn't run or is pending), automatically queries
+      POSFAPCENTER.dbo.VW_KASSA_SATISLAR for live retail cash register sales.
+    - Merges wholesale + retail so zero sales are ever lost.
+    """
+    close_conn = False
+    if conn is None:
+        conn = get_db_connection()
+        close_conn = True
+
+    try:
+        t0 = time.time()
+        q_erp = f"""
+        SELECT 
+            CAST([TARIX] AS VARCHAR(10)) AS sale_date,
+            CAST([MAGAZA] AS VARCHAR(20)) AS store_code,
+            LTRIM(RTRIM(CAST([MEHSUL_KODU] AS VARCHAR(50)))) AS item_code,
+            SUM(ISNULL([MIQDARI], 0)) AS sales_qty,
+            SUM(ISNULL([SATIS_EDV], 0)) AS sales_amount
+        FROM fnc_TS_SALES_REPORT_FOR_PLANNING('{start_date}', '{end_date}')
+        GROUP BY [TARIX], CAST([MAGAZA] AS VARCHAR(20)), LTRIM(RTRIM(CAST([MEHSUL_KODU] AS VARCHAR(50))))
+        """
+        import warnings
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning)
+            df_erp = pd.read_sql_query(q_erp, conn)
+        print(f"[UNIFIED] Logo ERP returned {len(df_erp):,} rows in {time.time()-t0:.2f}s")
+
+        expected_dates = pd.date_range(start_date, end_date).strftime('%Y-%m-%d').tolist()
+        missing_or_incomplete_dates = []
+
+        erp_date_counts = df_erp['sale_date'].value_counts().to_dict() if not df_erp.empty else {}
+        for d in expected_dates:
+            cnt = erp_date_counts.get(d, 0)
+            if cnt < 5000:
+                missing_or_incomplete_dates.append(d)
+
+        if missing_or_incomplete_dates:
+            print(f"[UNIFIED] Dates needing POS cash register data from POSFAPCENTER: {missing_or_incomplete_dates}")
+            min_kassa_d = min(missing_or_incomplete_dates)
+            max_kassa_d = (pd.to_datetime(max(missing_or_incomplete_dates)) + pd.Timedelta(days=1)).strftime('%Y-%m-%d')
+
+            t1 = time.time()
+            q_kassa = f"""
+            SELECT 
+                CONVERT(VARCHAR(10), TARIX, 120) AS sale_date,
+                LTRIM(RTRIM(MAGAZA_KODU)) AS store_code,
+                LTRIM(RTRIM(MEHSUL_KODU)) AS item_code,
+                SUM(ISNULL(MIQDAR, 0)) AS sales_qty,
+                SUM(ISNULL([CEM MEBLEG], 0)) AS sales_amount
+            FROM POSFAPCENTER.dbo.VW_KASSA_SATISLAR WITH (NOLOCK)
+            WHERE TARIX >= '{min_kassa_d}' AND TARIX < '{max_kassa_d}'
+            GROUP BY CONVERT(VARCHAR(10), TARIX, 120), LTRIM(RTRIM(MAGAZA_KODU)), LTRIM(RTRIM(MEHSUL_KODU))
+            """
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=UserWarning)
+                df_kassa = pd.read_sql_query(q_kassa, conn)
+            print(f"[UNIFIED] POSFAPCENTER returned {len(df_kassa):,} rows in {time.time()-t1:.2f}s")
+
+            df_kassa = df_kassa[df_kassa['sale_date'].isin(missing_or_incomplete_dates)]
+
+            df_erp_clean = df_erp[~df_erp['sale_date'].isin(missing_or_incomplete_dates)]
+            df_erp_incomplete = df_erp[df_erp['sale_date'].isin(missing_or_incomplete_dates)]
+
+            combined_incomplete = pd.concat([df_erp_incomplete, df_kassa], ignore_index=True)
+            combined_incomplete = combined_incomplete.groupby(['sale_date', 'store_code', 'item_code'], as_index=False).agg({
+                'sales_qty': 'sum',
+                'sales_amount': 'sum'
+            })
+
+            final_df = pd.concat([df_erp_clean, combined_incomplete], ignore_index=True)
+        else:
+            final_df = df_erp
+
+        return final_df
+    finally:
+        if close_conn and conn:
+            conn.close()
+
 def fetch_promo_sales_and_stock(
     beg_date: str, 
     end_date: str,
@@ -343,6 +428,132 @@ def fetch_promo_sales_and_stock(
             merged[col] = 0.0 if 'qty' in col or 'amount' in col or 'stock' in col or 'price' in col else ""
             
     return merged[expected_cols]
+
+def fetch_item_store_order_status(
+    item_codes: Optional[List[str]] = None,
+    store_codes: Optional[List[str]] = None
+) -> Dict[Tuple[str, str], str]:
+    """
+    Returns a mapping of (norm_store, norm_code) -> 'Aktiv' | 'Passiv'
+    extracted directly from vw_TS_ITEMS_DETAIL_MAGAZA_FOR_PLANNING [SIFARISE ACIQ].
+    BELI -> 'Aktiv' (Sifarişə Açıq), XEYR -> 'Passiv' (Sifarişə Qapalı).
+    Fast pyarrow read from item_store_status.parquet cache (<0.1s).
+    """
+    clean_item_codes = set(normalize_item_code(c) for c in (item_codes or []) if normalize_item_code(c))
+    norm_stores = set(normalize_store_code(s) for s in (store_codes or []) if normalize_store_code(s))
+
+    if os.path.exists(ITEM_STORE_STATUS_PARQUET):
+        try:
+            filters = []
+            if clean_item_codes:
+                filters.append(('item_code', 'in', list(clean_item_codes)))
+            if norm_stores:
+                filters.append(('store_code', 'in', list(norm_stores)))
+            df = pd.read_parquet(ITEM_STORE_STATUS_PARQUET, engine='pyarrow', filters=filters if filters else None)
+        except Exception as e:
+            print(f"Warning: pyarrow parquet filtered read failed: {e}")
+            df = pd.read_parquet(ITEM_STORE_STATUS_PARQUET, engine='pyarrow')
+    else:
+        try:
+            with db_connection_scope() as conn:
+                q = """
+                SELECT 
+                    CAST([IS YERI NO] AS VARCHAR(20)) AS store_code,
+                    LTRIM(RTRIM(CAST([URUN KODU] AS VARCHAR(50)))) AS item_code,
+                    LTRIM(RTRIM(CAST([SIFARISE ACIQ] AS VARCHAR(20)))) AS sifarise_aciq
+                FROM vw_TS_ITEMS_DETAIL_MAGAZA_FOR_PLANNING WITH (NOLOCK)
+                """
+                df = pd.read_sql_query(q, conn)
+            os.makedirs(PARQUET_DIR, exist_ok=True)
+            df.to_parquet(ITEM_STORE_STATUS_PARQUET, engine='pyarrow', compression='snappy', index=False)
+        except Exception as e:
+            print(f"Warning: Could not fetch order status from DB: {e}")
+            return {}
+
+    status_map: Dict[Tuple[str, str], str] = {}
+    if df is not None and not df.empty:
+        for st, ic, val in zip(df['store_code'], df['item_code'], df['sifarise_aciq']):
+            st_norm = normalize_store_code(st)
+            ic_norm = normalize_item_code(ic)
+            if not st_norm or not ic_norm:
+                continue
+            v_str = str(val).strip().upper()
+            status_map[(st_norm, ic_norm)] = "Aktiv" if v_str.startswith("BELI") else ("Passiv" if v_str.startswith("XEYR") else v_str)
+    return status_map
+
+_ITEM_STORE_DETAIL_CACHE: Dict[str, Dict[str, Dict[str, Any]]] = {}
+
+def get_supply_type_label(raw_val: Any) -> str:
+    """
+    Maps IS YERI TEDARUK TIPI numeric/string code to human-readable label:
+    40 -> 'Depo' (Depodan gələn)
+    41 -> 'Firma' (Firmadan gələn)
+    42 -> 'Sifarişsiz' (Sifarişsiz)
+    """
+    if raw_val is None:
+        return "Digər"
+    try:
+        val_int = int(raw_val)
+        if val_int == 40:
+            return "Depo"
+        elif val_int == 41:
+            return "Firma"
+        elif val_int == 42:
+            return "Sifarişsiz"
+    except (ValueError, TypeError):
+        pass
+    val_str = str(raw_val).strip()
+    if val_str == "40":
+        return "Depo"
+    elif val_str == "41":
+        return "Firma"
+    elif val_str == "42":
+        return "Sifarişsiz"
+    return "Digər"
+
+def fetch_single_item_store_details(item_code: str) -> Dict[str, Dict[str, Any]]:
+    """
+    Fetches store-by-store [IS YERI TEDARUK TIPI] and [SIFARISE ACIQ] for a single item.
+    Returns: {norm_store_code: {"supply_type": "Depo"|"Firma"|"Sifarişsiz", "tedaruk_tipi_raw": 40|41|42, "order_status": "Aktiv"|"Passiv"}}
+    Fast and cached in-memory.
+    """
+    norm_cd = normalize_item_code(item_code) or item_code
+    if norm_cd in _ITEM_STORE_DETAIL_CACHE:
+        return _ITEM_STORE_DETAIL_CACHE[norm_cd]
+
+    store_details: Dict[str, Dict[str, Any]] = {}
+    try:
+        with db_connection_scope() as conn:
+            cur = conn.cursor()
+            q = """
+            SELECT 
+                CAST([IS YERI NO] AS VARCHAR(20)) as store_code,
+                [IS YERI TEDARUK TIPI] as tedaruk_tipi,
+                LTRIM(RTRIM(CAST([SIFARISE ACIQ] AS VARCHAR(20)))) as sifarise_aciq
+            FROM vw_TS_ITEMS_DETAIL_MAGAZA_FOR_PLANNING WITH (NOLOCK)
+            WHERE [URUN KODU] = ?
+            """
+            cur.execute(q, (item_code,))
+            rows = cur.fetchall()
+            for r in rows:
+                raw_st, raw_tip, raw_aciq = r
+                st_norm = normalize_store_code(raw_st) or str(raw_st).strip()
+                if not st_norm:
+                    continue
+                tip_label = get_supply_type_label(raw_tip)
+                tip_raw = int(raw_tip) if raw_tip is not None and str(raw_tip).isdigit() else raw_tip
+                v_str = str(raw_aciq or "").strip().upper()
+                ord_status = "Aktiv" if v_str.startswith("BELI") else ("Passiv" if v_str.startswith("XEYR") else v_str)
+                store_details[st_norm] = {
+                    "supply_type": tip_label,
+                    "tedaruk_tipi_raw": tip_raw,
+                    "order_status": ord_status
+                }
+    except Exception as e:
+        print(f"Warning: Failed to fetch single item store details for {item_code}: {e}")
+
+    _ITEM_STORE_DETAIL_CACHE[norm_cd] = store_details
+    return store_details
 
 _STORE_STOCK_CACHE: Dict[Tuple[str, Tuple[str, ...]], Dict[Tuple[str, str], float]] = {}
 _CACHE_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "store_stock_cache.json")

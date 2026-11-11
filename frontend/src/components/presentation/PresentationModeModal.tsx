@@ -245,7 +245,7 @@ export const PresentationModeModal: React.FC<PresentationModeModalProps> = ({
   const productPerformances = useMemo(() => data?.product_performances || [], [data]);
   const categoryPerformances = useMemo(() => data?.category_performances || [], [data]);
   const serviceLevelRecords = useMemo(() => data?.service_level_records || [], [data]);
-  const dailySales = useMemo(() => (data as any)?.daily_sales || [], [data]);
+  const dailySales = useMemo(() => (data as any)?.daily_sales || (data as any)?.analytics?.daily_sales || [], [data]);
 
   // Enriched Categories with calculations
   const enrichedCategories = useMemo(() => {

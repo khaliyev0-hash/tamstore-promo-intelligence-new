@@ -316,7 +316,7 @@ def generate_pdf_report(analytics_data: Dict[str, Any], campaign_meta: Optional[
     kpi = analytics_data.get("kpi_cards", {}) or {}
     meta = campaign_meta or {}
 
-    campaign_name = meta.get("campaign_id") or "15-28 Promo Campaign"
+    campaign_name = meta.get("campaign_id") or "Promo Kampaniyası"
     beg_date = meta.get("beg_date", "2026-10-15")
     end_date = meta.get("end_date", "2026-10-28")
     report_time = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -723,7 +723,7 @@ if __name__ == '__main__':
     meta = {
         "beg_date": data.get("beg_date", "2026-10-15"),
         "end_date": data.get("end_date", "2026-10-28"),
-        "campaign_id": "15-28 Promo Campaign"
+        "campaign_id": "Promo Kampaniyası"
     }
 
     pdf_bytes = generate_pdf_report(analytics, campaign_meta=meta)

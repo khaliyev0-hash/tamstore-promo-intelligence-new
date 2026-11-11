@@ -124,6 +124,11 @@ def compute_fact_records(fact_df: pd.DataFrame, settings: AppSettings) -> List[F
     sub_categories = fact_df['SUB_CATEGORY'].fillna("").astype(str).tolist() if 'SUB_CATEGORY' in fact_df.columns else [""] * n_rows
     areas = fact_df['AREA'].fillna("").astype(str).tolist() if 'AREA' in fact_df.columns else [""] * n_rows
     sub_areas = fact_df['SUB_AREA'].fillna("").astype(str).tolist() if 'SUB_AREA' in fact_df.columns else [""] * n_rows
+    origins = fact_df['ORIGIN'].fillna("").astype(str).tolist() if 'ORIGIN' in fact_df.columns else [""] * n_rows
+    insert_formats = fact_df['INSERT_FORMAT'].fillna("").astype(str).tolist() if 'INSERT_FORMAT' in fact_df.columns else [""] * n_rows
+    store_formats = fact_df['STORE_FORMAT'].fillna("").astype(str).tolist() if 'STORE_FORMAT' in fact_df.columns else [""] * n_rows
+    order_statuses = fact_df['STATUS'].fillna("").astype(str).tolist() if 'STATUS' in fact_df.columns else [""] * n_rows
+    excel_store_counts = fact_df['EXCEL_STORE_COUNT'].fillna(0).astype(int).tolist() if 'EXCEL_STORE_COUNT' in fact_df.columns else [0] * n_rows
 
     records = [
         FactRecord(
@@ -147,6 +152,11 @@ def compute_fact_records(fact_df: pd.DataFrame, settings: AppSettings) -> List[F
             sub_category=sub_categories[i] if sub_categories[i] and sub_categories[i] not in ("None", "nan") else None,
             area=areas[i] if areas[i] and areas[i] not in ("None", "nan") else None,
             sub_area=sub_areas[i] if sub_areas[i] and sub_areas[i] not in ("None", "nan") else None,
+            origin=origins[i] if origins[i] and origins[i] not in ("None", "nan") else None,
+            insert_format=insert_formats[i] if insert_formats[i] and insert_formats[i] not in ("None", "nan") else None,
+            store_format=store_formats[i] if store_formats[i] and store_formats[i] not in ("None", "nan") else None,
+            order_status=order_statuses[i] if order_statuses[i] and order_statuses[i] not in ("None", "nan") else None,
+            excel_store_count=excel_store_counts[i] if excel_store_counts[i] else 0,
             status=statuses[i]
         )
         for i in range(n_rows)

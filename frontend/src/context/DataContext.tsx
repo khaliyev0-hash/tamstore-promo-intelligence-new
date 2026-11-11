@@ -72,16 +72,33 @@ const defaultSettings: AppSettings = {
 const defaultFilters: GlobalFilterState = {
   searchQuery: "",
   selectedStore: "",
+  selectedStores: [],
   selectedProduct: "",
+  selectedProducts: [],
   selectedCategory: "ALL",
+  selectedCategories: [],
   selectedArea: "ALL",
+  selectedAreas: [],
   selectedFamily: "ALL",
+  selectedFamilies: [],
   selectedSubArea: "ALL",
+  selectedSubAreas: [],
+  selectedOrigin: "ALL",
+  selectedOrigins: [],
+  selectedInsertFormat: "ALL",
+  selectedInsertFormats: [],
+  selectedFormat: "ALL",
+  selectedFormats: [],
+  selectedStatus: "ALL",
+  selectedStatuses: [],
+  selectedSupplyType: "ALL",
+  selectedSupplyTypes: [],
   achievementStatus: "ALL",
   stockStatus: "ALL",
   abcClass: "ALL",
   dateRange: "ALL",
-  promoType: "ALL"
+  promoType: "ALL",
+  selectedPromoTypes: []
 };
 
 export const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -138,6 +155,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const refreshActiveCampaign = async () => {
+    setLoading(true);
     try {
       const res = await fetch(`${API_BASE}/current-analysis`);
       if (res.ok) {
@@ -152,10 +170,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setActiveCampaignId(json.id);
           }
           await fetchCampaigns();
+          showToast({ type: 'success', message: 'Məlumatlar uğurla yeniləndi.' });
+        } else {
+          showToast({ type: 'info', message: 'Aktiv kampaniya təhlili tapılmadı.' });
         }
+      } else {
+        showToast({ type: 'error', message: 'Məlumatları yükləmək mümkün olmadı.' });
       }
     } catch (err) {
       console.error("Failed to refresh active campaign", err);
+      showToast({ type: 'error', message: 'Serverlə əlaqə qurularkən xəta baş verdi.' });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -194,7 +220,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const res = await fetch(`${API_BASE}/source/status`);
       if (res.ok) {
         const status: SourceStatus = await res.json();
-        setSourceStatus(status);
+        setSourceStatus((prev) => {
+          if (
+            prev &&
+            prev.last_success_at === status.last_success_at &&
+            prev.state === status.state &&
+            prev.configured === status.configured &&
+            prev.path === status.path
+          ) {
+            return prev;
+          }
+          return status;
+        });
 
         if (status.last_success_at) {
           if (prevLastSuccessRef.current !== null && prevLastSuccessRef.current !== status.last_success_at) {
@@ -264,38 +301,102 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   useEffect(() => {
+    let isCancelled = false;
+
     const initData = async () => {
       setLoading(true);
-      try {
-        const res = await fetch(`${API_BASE}/current-analysis`);
-        if (res.ok) {
-          const json = await res.json();
-          if (json && json.analytics && json.analytics.kpi_cards) {
-            setColumnMapping(json.mapping || null);
-            setQualityReport(json.quality_report || null);
-            setConfidence(json.confidence || 1.0);
-            setSampleRows(json.sample_rows || []);
-            setData(json.analytics);
-            if (json.id) {
-              setActiveCampaignId(json.id);
+
+      const tryFetchAnalysis = async (retries = 20, delay = 350): Promise<boolean> => {
+        for (let i = 0; i < retries; i++) {
+          if (isCancelled) return false;
+          try {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 2500);
+            const res = await fetch(`${API_BASE}/current-analysis`, { signal: controller.signal });
+            clearTimeout(timer);
+
+            if (res.ok) {
+              const json = await res.json();
+              if (json && json.analytics && json.analytics.kpi_cards) {
+                if (isCancelled) return true;
+                setColumnMapping(json.mapping || null);
+                setQualityReport(json.quality_report || null);
+                setConfidence(json.confidence || 1.0);
+                setSampleRows(json.sample_rows || []);
+                setData(json.analytics);
+                if (json.id) {
+                  setActiveCampaignId(json.id);
+                }
+                await fetchCampaigns();
+                return true;
+              } else if (json && json.analytics === null) {
+                // Backend is responsive, but active campaign session is empty
+                return false;
+              }
             }
-            await fetchCampaigns();
-            setLoading(false);
-            return;
+          } catch (_) {
+            // Backend is booting up, will retry
+          }
+          if (i < retries - 1 && !isCancelled) {
+            await new Promise((resolve) => setTimeout(resolve, delay));
           }
         }
-      } catch (err) {
-        console.error("Failed to fetch current analysis", err);
-      }
+        return false;
+      };
+
       try {
-        await loadDemoData("B");
-      } catch (err) {
-        console.error("Failed to load fallback demo data", err);
+        const success = await tryFetchAnalysis(20, 350);
+        if (!success && !isCancelled) {
+          // If no active analysis, check available campaigns first
+          let campaignLoaded = false;
+          try {
+            const campRes = await fetch(`${API_BASE}/campaigns`);
+            if (campRes.ok) {
+              const list: CampaignMetadata[] = await campRes.json();
+              setCampaigns(list);
+              const active = list.find((c) => c.is_active);
+              if (active) {
+                const actRes = await fetch(`${API_BASE}/campaigns/${active.id}/activate`, { method: "POST" });
+                if (actRes.ok) {
+                  const actJson = await actRes.json();
+                  const camp = actJson.campaign;
+                  if (camp && camp.analytics && camp.analytics.kpi_cards) {
+                    setColumnMapping(camp.mapping || null);
+                    setQualityReport(camp.quality_report || null);
+                    setConfidence(camp.confidence || 1.0);
+                    setSampleRows(camp.sample_rows || []);
+                    setData(camp.analytics);
+                    setActiveCampaignId(active.id);
+                    campaignLoaded = true;
+                  }
+                }
+              }
+            }
+          } catch (err) {
+            console.warn("Could not auto-activate stored campaign", err);
+          }
+
+          // If still no valid campaign data, fallback to demo data
+          if (!campaignLoaded && !isCancelled) {
+            try {
+              await loadDemoData("B");
+            } catch (err) {
+              console.error("Failed to load fallback demo data", err);
+            }
+          }
+        }
+      } finally {
+        if (!isCancelled) {
+          await fetchCampaigns().catch(() => {});
+          setLoading(false);
+        }
       }
-      await fetchCampaigns();
-      setLoading(false);
     };
+
     initData();
+    return () => {
+      isCancelled = true;
+    };
   }, []);
 
 

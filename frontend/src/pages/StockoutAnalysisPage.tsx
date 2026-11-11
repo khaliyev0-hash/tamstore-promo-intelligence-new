@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useData } from '../context/DataContext';
 import { AlertTriangle, TrendingDown, Package, ShieldAlert, Store, ArrowUpRight } from 'lucide-react';
-import { isPromoTypeMatch } from '../utils/filterUtils';
+import { isPromoTypeMatch, isProductMatchGlobalFilters } from '../utils/filterUtils';
 import { SortableHeader } from '../components/common/SortableHeader';
 import { SpotlightCard } from '../components/common/SpotlightCard';
 import { AnimatedCounter } from '../components/common/AnimatedCounter';
@@ -18,11 +18,7 @@ export const StockoutAnalysisPage: React.FC = () => {
 
   const stockoutProducts = product_performances.filter((p) => {
     if (p.stockout_store_count <= 0) return false;
-    if (filters.selectedProduct && p.code !== filters.selectedProduct) return false;
-    if (filters.selectedCategory && filters.selectedCategory !== 'ALL' && p.category !== filters.selectedCategory) return false;
-    if (filters.selectedFamily && filters.selectedFamily !== 'ALL' && p.family !== filters.selectedFamily) return false;
-    if (filters.promoType && filters.promoType !== 'ALL' && !isPromoTypeMatch(p, filters.promoType)) return false;
-    return true;
+    return isProductMatchGlobalFilters(p, filters);
   });
 
   const handleSort = (field: string) => {
@@ -207,7 +203,16 @@ export const StockoutAnalysisPage: React.FC = () => {
                 >
                   <td className="p-3 font-mono font-bold text-blue-700 dark:text-blue-400">{p.code}</td>
                   <td className="p-3 font-bold text-slate-900 dark:text-slate-100">{p.name}</td>
-                  <td className="p-3 text-center font-bold text-rose-600 dark:text-rose-400">{p.stockout_store_count} / {p.store_count} mağaza</td>
+                  <td className="p-3 text-center">
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900/60 group-hover:border-rose-400 transition-colors">
+                      <span className="font-bold text-rose-600 dark:text-rose-400">
+                        {p.stockout_store_count} / {p.store_count} mağaza
+                      </span>
+                      <span className="text-[10px] text-rose-700 dark:text-rose-300 font-bold bg-white dark:bg-slate-900 px-1.5 py-0.5 rounded border border-rose-300 dark:border-rose-800 flex items-center gap-0.5 shadow-xs">
+                        <Store className="w-3 h-3" /> Mağazalara bax
+                      </span>
+                    </div>
+                  </td>
                   <td className="p-3 text-center font-mono text-rose-600 dark:text-rose-400 font-bold">{p.stockout_pct}%</td>
                   <td className="p-3 text-right font-mono text-slate-700 dark:text-slate-300">{p.total_fc}</td>
                   <td className="p-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">{p.total_sale}</td>

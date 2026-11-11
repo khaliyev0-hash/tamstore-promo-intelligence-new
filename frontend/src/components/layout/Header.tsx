@@ -2,7 +2,10 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useData } from '../../context/DataContext';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../common/ToastProvider';
-import { Upload, FileSpreadsheet, FileText, Database, Globe, RotateCw, Search, Clock, CheckCircle2, Sun, Moon, Tv } from 'lucide-react';
+import {
+  Upload, FileSpreadsheet, FileText, Database, Globe, RotateCw, Search, Clock,
+  CheckCircle2, Sun, Moon, Tv
+} from 'lucide-react';
 import { HeaderAnimatedLines } from '../common/HeaderAnimatedLines';
 
 export const Header: React.FC = () => {
@@ -10,6 +13,8 @@ export const Header: React.FC = () => {
     t,
     lang,
     setLang,
+    data,
+    refreshActiveCampaign,
     setShowUploadModal,
     setShowCommandPalette,
     setShowPresentationMode,
@@ -32,13 +37,16 @@ export const Header: React.FC = () => {
       const getHostName = () => (typeof window !== 'undefined' && window.location && window.location.hostname) ? window.location.hostname : 'localhost';
       const API_BASE = import.meta.env.VITE_API_BASE_URL || `http://${getHostName()}:8000/api`;
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4000);
-      const res = await fetch(`${API_BASE}/campaigns`, { signal: controller.signal });
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      const res = await fetch(`${API_BASE}/health`, { signal: controller.signal });
       clearTimeout(timeoutId);
 
       if (res.ok) {
         if (prevConnectedRef.current === false) {
           showToast({ type: 'success', message: 'Backend bağlantısı bərpa olundu ✓' });
+          if (!data || !data.kpi_cards) {
+            refreshActiveCampaign().catch(() => {});
+          }
         }
         setIsConnected(true);
         prevConnectedRef.current = true;
@@ -196,12 +204,12 @@ export const Header: React.FC = () => {
     <header className="h-16 bg-white/90 dark:bg-slate-900/90 backdrop-blur border-b border-slate-200 dark:border-slate-800 px-6 flex items-center justify-between sticky top-0 z-30 shadow-xs transition-colors duration-200">
       {/* Title Block with Refined Typography and Subtle Source Pill */}
       <div className="shrink-0 group cursor-default space-y-0.5">
-        <h2 className="text-base font-black tracking-tight bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-600 dark:from-blue-400 dark:via-blue-300 dark:to-indigo-300 bg-clip-text text-transparent flex items-center gap-1.5 drop-shadow-[0_2px_8px_rgba(20,121,232,0.4)] transition-all duration-300 group-hover:scale-102">
+        <h2 className="text-base font-black tracking-tight bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-600 dark:from-sky-300 dark:via-blue-200 dark:to-white bg-clip-text text-transparent flex items-center gap-1.5 drop-shadow-[0_2px_8px_rgba(20,121,232,0.4)] transition-all duration-300 group-hover:scale-102">
           <span>{t('app_title')}</span>
           <span className="inline-block w-2 h-2 rounded-full bg-blue-500 animate-ping" />
         </h2>
         <div className="flex items-center gap-2">
-          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+          <p className="text-xs font-semibold text-slate-500 dark:text-slate-300">
             {t('sub_title')}
           </p>
         </div>
@@ -254,7 +262,7 @@ export const Header: React.FC = () => {
         {/* Midnight Executive Dark Mode Toggle */}
         <button
           onClick={toggleTheme}
-          className="p-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-amber-400 rounded-xl border border-slate-200 dark:border-slate-700 transition-all cursor-pointer active:scale-95"
+          className="p-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-amber-400 rounded-xl border border-slate-200 dark:border-slate-700 transition-all cursor-pointer active:scale-95 shadow-xs"
           title={isDark ? "İşıqlı rejimə keç (Light Mode)" : "Qaranlıq rejimə keç (Dark Mode)"}
         >
           {isDark ? (

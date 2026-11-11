@@ -199,14 +199,21 @@ class SourceWatcher:
         # Check signature or force flag
         force = self.force_next_run
         last_sig = self.state_data.get("sha256")
+        last_mtime = self.state_data.get("mtime")
+        last_size = self.state_data.get("size")
         
-        if not force and last_sig and self.state_data.get("state") == "ok":
-            try:
-                curr_sig = compute_source_signature(target_path)
-                if curr_sig == last_sig:
-                    return # Idempotent skip
-            except Exception:
-                pass
+        if not force and self.state_data.get("state") == "ok":
+            # Fast check: If mtime and size match previous successful run, avoid heavy disk I/O & hashing
+            if last_mtime == mtime and last_size == size:
+                return  # Fast idempotent skip without reading disk
+
+            if last_sig:
+                try:
+                    curr_sig = compute_source_signature(target_path)
+                    if curr_sig == last_sig:
+                        return # Idempotent skip
+                except Exception:
+                    pass
 
         # Trigger run
         self._execute_run()

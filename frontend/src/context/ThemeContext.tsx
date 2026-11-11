@@ -29,8 +29,10 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const root = document.documentElement;
     if (theme === 'dark') {
       root.classList.add('dark');
+      root.style.colorScheme = 'dark';
     } else {
       root.classList.remove('dark');
+      root.style.colorScheme = 'light';
     }
     try {
       localStorage.setItem('tamstore_theme', theme);
@@ -39,6 +41,22 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }, [theme]);
 
+  // Listen to system preference changes only when user has not saved an explicit choice
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = (e: MediaQueryListEvent) => {
+      try {
+        const saved = localStorage.getItem('tamstore_theme');
+        if (!saved) {
+          setThemeState(e.matches ? 'dark' : 'light');
+        }
+      } catch (_) {}
+    };
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
+
   const toggleTheme = () => {
     setThemeState((prev) => (prev === 'dark' ? 'light' : 'dark'));
   };
@@ -46,6 +64,12 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const setTheme = (newTheme: Theme) => {
     setThemeState(newTheme);
   };
+
+  if (import.meta.env.DEV && typeof window !== 'undefined') {
+    (window as any).__setTheme = setTheme;
+    (window as any).__toggleTheme = toggleTheme;
+    (window as any).__theme = theme;
+  }
 
   return (
     <ThemeContext.Provider value={{ theme, isDark: theme === 'dark', toggleTheme, setTheme }}>

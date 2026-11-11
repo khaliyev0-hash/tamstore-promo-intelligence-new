@@ -5,25 +5,30 @@ interface HeaderAnimatedLinesProps {
   subtle?: boolean;
 }
 
+// TamStore Gold Sparkle 4-point star SVG path definition
+const SparkleStar: React.FC<{ size?: number; className?: string; style?: React.CSSProperties }> = ({
+  size = 24,
+  className = "",
+  style = {}
+}) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    className={className}
+    style={style}
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <path
+      d="M 12 0 C 12 6.627, 17.373 12, 24 12 C 17.373 12, 12 17.373, 12 24 C 12 17.373, 6.627 12, 0 12 C 6.627 12, 12 6.627, 12 0 Z"
+      fill="url(#sparkleGoldGrad)"
+      filter="url(#sparkleGlow)"
+    />
+  </svg>
+);
+
 export const HeaderAnimatedLines: React.FC<HeaderAnimatedLinesProps> = ({ className = '', subtle = false }) => {
-  // TamStore Gold Sparkle 4-point star SVG path definition
-  const SparkleStar = ({ size = 24, className = "", style = {} }: { size?: number; className?: string; style?: React.CSSProperties }) => (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      className={className}
-      style={style}
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="M 12 0 C 12 6.627, 17.373 12, 24 12 C 17.373 12, 12 17.373, 12 24 C 12 17.373, 6.627 12, 0 12 C 6.627 12, 12 6.627, 12 0 Z"
-        fill="url(#sparkleGoldGrad)"
-        filter="url(#sparkleGlow)"
-      />
-    </svg>
-  );
 
   const containerClasses = subtle
     ? `flex items-center justify-between py-1 px-6 bg-gradient-to-r from-blue-50/50 via-amber-50/40 to-blue-50/50 dark:from-blue-950/30 dark:via-amber-950/20 dark:to-blue-950/30 overflow-hidden relative h-full w-full opacity-95 ${className}`

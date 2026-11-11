@@ -10,7 +10,7 @@ import * as XLSX from 'xlsx';
 import { SortableHeader } from '../components/common/SortableHeader';
 import { SpotlightCard } from '../components/common/SpotlightCard';
 import { AnimatedCounter } from '../components/common/AnimatedCounter';
-import { isPromoTypeMatch } from '../utils/filterUtils';
+import { isPromoTypeMatch, isProductMatchGlobalFilters } from '../utils/filterUtils';
 
 export const PromoUpliftPage: React.FC = () => {
   const { setSelectedProductDetail, activeCampaignId, filters, t } = useData();
@@ -40,8 +40,11 @@ export const PromoUpliftPage: React.FC = () => {
     try {
       const params = new URLSearchParams();
       if (activeCampaignId) params.append('campaign_id', activeCampaignId);
-      if (filters?.selectedStore && filters.selectedStore !== 'ALL') {
-        params.append('store', filters.selectedStore);
+      const storeVal = (filters?.selectedStores && filters.selectedStores.length === 1)
+        ? filters.selectedStores[0]
+        : (filters?.selectedStore && filters.selectedStore !== 'ALL' ? filters.selectedStore : '');
+      if (storeVal) {
+        params.append('store', storeVal);
       }
       const qs = params.toString() ? `?${params.toString()}` : '';
       const res = await fetch(`${API_BASE}/promo-uplift${qs}`);
@@ -60,7 +63,7 @@ export const PromoUpliftPage: React.FC = () => {
 
   useEffect(() => {
     fetchUpliftData();
-  }, [activeCampaignId, filters?.selectedStore]);
+  }, [activeCampaignId, filters?.selectedStore, filters?.selectedStores]);
 
   // Client-side filtering
   const filteredItems = useMemo(() => {
@@ -79,25 +82,8 @@ export const PromoUpliftPage: React.FC = () => {
       );
     }
 
-    // Product
-    if (filters?.selectedProduct) {
-      list = list.filter(item => item.code === filters.selectedProduct);
-    }
-
-    // Category
-    if (filters?.selectedCategory && filters.selectedCategory !== 'ALL') {
-      list = list.filter(item => item.category === filters.selectedCategory);
-    }
-
-    // Family
-    if (filters?.selectedFamily && filters.selectedFamily !== 'ALL') {
-      list = list.filter(item => item.family === filters.selectedFamily);
-    }
-
-    // Promo Type
-    if (filters?.promoType && filters.promoType !== 'ALL') {
-      list = list.filter(item => isPromoTypeMatch(item, filters.promoType));
-    }
+    // Global Multi & Single Filters (Product, Category, Family, Promo Type)
+    list = list.filter(item => isProductMatchGlobalFilters(item, filters));
 
     // Status
     if (selectedStatus !== 'ALL') {

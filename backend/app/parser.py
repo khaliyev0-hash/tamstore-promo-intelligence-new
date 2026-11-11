@@ -39,6 +39,10 @@ def detect_columns(df_cols: List[str]) -> Tuple[ColumnMapping, float]:
         "family_col": None,
         "area_col": None,
         "sub_area_col": None,
+        "origin_col": None,
+        "insert_format_col": None,
+        "format_col": None,
+        "status_col": None,
         "daily_stock_cols": []
     }
     
@@ -90,6 +94,14 @@ def detect_columns(df_cols: List[str]) -> Tuple[ColumnMapping, float]:
                     mapping["area_col"] = orig_col
                 elif field == "SUB_AREA" and not mapping["sub_area_col"]:
                     mapping["sub_area_col"] = orig_col
+                elif field == "ORIGIN" and not mapping["origin_col"]:
+                    mapping["origin_col"] = orig_col
+                elif field == "INSERT_FORMAT" and not mapping["insert_format_col"]:
+                    mapping["insert_format_col"] = orig_col
+                elif field == "STORE_FORMAT" and not mapping["format_col"]:
+                    mapping["format_col"] = orig_col
+                elif field == "STATUS" and not mapping["status_col"]:
+                    mapping["status_col"] = orig_col
 
     # 2. Match Daily Stock Columns (Format B)
     for orig_col in df_cols:
@@ -125,6 +137,10 @@ def detect_columns(df_cols: List[str]) -> Tuple[ColumnMapping, float]:
         family_col=mapping["family_col"],
         area_col=mapping["area_col"],
         sub_area_col=mapping["sub_area_col"],
+        origin_col=mapping["origin_col"],
+        insert_format_col=mapping["insert_format_col"],
+        format_col=mapping["format_col"],
+        status_col=mapping["status_col"],
         daily_stock_cols=mapping["daily_stock_cols"]
     )
     

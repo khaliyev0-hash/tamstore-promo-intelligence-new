@@ -1,43 +1,200 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  color-scheme: light;
+
+  /* Surfaces */
+  --surface: #f8fafc;
+  --surface-raised: #ffffff;
+  --surface-muted: #f1f5f9;
+  --surface-sunken: #e2e8f0;
+
+  /* Foregrounds */
+  --fg: #0f172a;
+  --fg-muted: #475569;
+  --fg-subtle: #64748b;
+
+  /* Borders & Rings */
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --ring: #3b82f6;
+  --overlay: rgba(15, 23, 42, 0.6);
+
+  /* Brand */
+  --brand: #2563eb;
+  --brand-fg: #ffffff;
+  --brand-muted: #eff6ff;
+
+  /* Status Tokens (Light: pastel backgrounds, dark text) */
+  --status-success-bg: #ecfdf5;
+  --status-success-border: #a7f3d0;
+  --status-success-text: #047857;
+
+  --status-warning-bg: #fffbeb;
+  --status-warning-border: #fde68a;
+  --status-warning-text: #b45309;
+
+  --status-danger-bg: #fff1f2;
+  --status-danger-border: #fecdd3;
+  --status-danger-text: #be123c;
+
+  --status-info-bg: #eff6ff;
+  --status-info-border: #bfdbfe;
+  --status-info-text: #1d4ed8;
+
+  --status-violet-bg: #faf5ff;
+  --status-violet-border: #e9d5ff;
+  --status-violet-text: #6b21a8;
+
+  /* Shadows / Glows for Light */
+  --card-shadow: 0 4px 18px -2px rgba(15, 23, 42, 0.05), 0 1px 3px 0 rgba(15, 23, 42, 0.02);
+  --card-shadow-hover: 0 18px 36px -8px rgba(15, 23, 42, 0.09), 0 8px 18px -4px rgba(20, 121, 232, 0.10);
+  --panel-bg: rgba(255, 255, 255, 0.95);
+  --glass-bg: rgba(255, 255, 255, 0.85);
+  --glass-border: rgba(226, 232, 240, 0.85);
+}
+
+.dark, html.dark {
+  color-scheme: dark;
+
+  /* Surfaces */
+  --surface: #070b14;
+  --surface-raised: #0f172a;
+  --surface-muted: #162032;
+  --surface-sunken: #1a263c;
+
+  /* Foregrounds */
+  --fg: #f8fafc;
+  --fg-muted: #cbd5e1;
+  --fg-subtle: #94a3b8;
+
+  /* Borders & Rings */
+  --border: #1e293b;
+  --border-strong: #334155;
+  --ring: #60a5fa;
+  --overlay: rgba(2, 6, 23, 0.8);
+
+  /* Brand */
+  --brand: #3b82f6;
+  --brand-fg: #ffffff;
+  --brand-muted: rgba(59, 130, 246, 0.15);
+
+  /* Status Tokens (Dark: translucent tinted background, light text) */
+  --status-success-bg: rgba(16, 185, 129, 0.15);
+  --status-success-border: rgba(16, 185, 129, 0.4);
+  --status-success-text: #34d399;
+
+  --status-warning-bg: rgba(245, 158, 11, 0.16);
+  --status-warning-border: rgba(245, 158, 11, 0.45);
+  --status-warning-text: #fbbf24;
+
+  --status-danger-bg: rgba(244, 63, 94, 0.16);
+  --status-danger-border: rgba(244, 63, 94, 0.45);
+  --status-danger-text: #fb7185;
+
+  --status-info-bg: rgba(59, 130, 246, 0.16);
+  --status-info-border: rgba(59, 130, 246, 0.45);
+  --status-info-text: #60a5fa;
+
+  --status-violet-bg: rgba(168, 85, 247, 0.16);
+  --status-violet-border: rgba(168, 85, 247, 0.45);
+  --status-violet-text: #c084fc;
+
+  /* Shadows / Glows for Dark */
+  --card-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --card-shadow-hover: 0 18px 36px -8px rgba(0, 0, 0, 0.7), 0 0 20px -2px rgba(56, 189, 248, 0.15);
+  --panel-bg: rgba(15, 23, 42, 0.92);
+  --glass-bg: rgba(15, 23, 42, 0.85);
+  --glass-border: rgba(30, 41, 59, 0.85);
+}
+
+@theme {
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-muted: var(--surface-muted);
+  --color-surface-sunken: var(--surface-sunken);
+
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+
+  --color-line: var(--border);
+  --color-border-line: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-ring: var(--ring);
+  --color-overlay: var(--overlay);
+
+  --color-brand: var(--brand);
+  --color-brand-fg: var(--brand-fg);
+  --color-brand-muted: var(--brand-muted);
+
+  --color-status-success-bg: var(--status-success-bg);
+  --color-status-success-border: var(--status-success-border);
+  --color-status-success-text: var(--status-success-text);
+
+  --color-status-warning-bg: var(--status-warning-bg);
+  --color-status-warning-border: var(--status-warning-border);
+  --color-status-warning-text: var(--status-warning-text);
+
+  --color-status-danger-bg: var(--status-danger-bg);
+  --color-status-danger-border: var(--status-danger-border);
+  --color-status-danger-text: var(--status-danger-text);
+
+  --color-status-info-bg: var(--status-info-bg);
+  --color-status-info-border: var(--status-info-border);
+  --color-status-info-text: var(--status-info-text);
+
+  --color-status-violet-bg: var(--status-violet-bg);
+  --color-status-violet-border: var(--status-violet-border);
+  --color-status-violet-text: var(--status-violet-text);
+}
+
 html {
   zoom: 80%;
   width: 100%;
-  height: calc(100vh / 0.8);
-  min-height: calc(100vh / 0.8);
-  background-color: #f8fafc;
+  min-height: 100%;
+  background-color: var(--surface);
 }
 
 body, #root {
   width: 100%;
-  height: 100%;
   min-height: 100%;
   margin: 0;
   padding: 0;
-  background-color: #f8fafc;
+  background-color: var(--surface);
+  color: var(--fg);
 }
 
-@layer base {
-  body {
-    @apply bg-slate-50 text-slate-900 font-sans antialiased selection:bg-blue-600 selection:text-white;
-  }
+::selection {
+  background-color: var(--brand);
+  color: var(--brand-fg);
 }
 
-/* Custom Light Scrollbar */
+/* Custom Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: var(--surface);
 }
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: var(--border-strong);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: var(--fg-subtle);
 }
+
+@layer base {
+  body {
+    @apply font-sans antialiased;
+  }
+}
+
+
 
 /* Premium Soft & Deep Corporate Ambient Shadow Utility with Dynamic 3D Elevation */
 .card-hover {
@@ -341,6 +498,85 @@ body, #root {
 }
 
 /* ========================================================
+   LUMINOUS PROGRESS STREAM & BEAM SWEEP LIGHT EFFECTS
+   Hardware-accelerated (GPU) photon beam & neon aura engine
+   ======================================================== */
+
+@keyframes progressBeamSweep {
+  0% {
+    transform: translateX(-160%) skewX(-20deg);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(280%) skewX(-20deg);
+    opacity: 0;
+  }
+}
+
+@keyframes progressAuroraFlow {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes photonPulseGlow {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.85;
+    filter: drop-shadow(0 0 6px rgba(6, 182, 212, 0.8)) drop-shadow(0 0 12px rgba(37, 99, 235, 0.4));
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 1;
+    filter: drop-shadow(0 0 12px rgba(34, 211, 238, 1)) drop-shadow(0 0 20px rgba(6, 182, 212, 0.7));
+  }
+}
+
+@keyframes neonBeaconFlare {
+  0%, 100% {
+    opacity: 0.55;
+    transform: translateY(-50%) scale(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-50%) scale(1.2);
+  }
+}
+
+.animate-beam-sweep {
+  animation: progressBeamSweep 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  will-change: transform, opacity;
+}
+
+.animate-beam-sweep-delayed {
+  animation: progressBeamSweep 3.4s cubic-bezier(0.4, 0, 0.2, 1) infinite 1.1s;
+  will-change: transform, opacity;
+}
+
+.animate-aurora-flow {
+  background-size: 200% 200%;
+  animation: progressAuroraFlow 5s ease infinite;
+}
+
+.animate-photon-pulse {
+  animation: photonPulseGlow 1.8s ease-in-out infinite;
+}
+
+.animate-beacon-flare {
+  animation: neonBeaconFlare 1.6s ease-in-out infinite;
+}
+
+
+/* ========================================================
    🌙 MIDNIGHT EXECUTIVE DARK THEME
    Deep Slate Palette with Luminous Accents & Crisp Contrast
    ======================================================== */
@@ -357,9 +593,11 @@ html.dark #root {
 
 /* Base Surfaces in Dark Mode */
 html.dark .bg-white,
-html.dark .bg-white\/90,
 html.dark .bg-white\/95,
-html.dark .bg-white\/80 {
+html.dark .bg-white\/90,
+html.dark .bg-white\/85,
+html.dark .bg-white\/80,
+html.dark .bg-white\/75 {
   background-color: #111827 !important;
 }
 
@@ -404,16 +642,16 @@ html.dark .text-slate-800 {
   color: #f1f5f9 !important;
 }
 html.dark .text-slate-700 {
-  color: #e2e8f0 !important;
+  color: #f1f5f9 !important;
 }
 html.dark .text-slate-600 {
-  color: #cbd5e1 !important;
+  color: #e2e8f0 !important;
 }
 html.dark .text-slate-500 {
-  color: #94a3b8 !important;
+  color: #cbd5e1 !important;
 }
 html.dark .text-slate-400 {
-  color: #64748b !important;
+  color: #94a3b8 !important;
 }
 
 /* Table Enhancements in Dark Mode */
@@ -700,10 +938,12 @@ html.dark .glass-card:hover {
 
 /* OLED Midnight Obsidian Background */
 html.dark body {
-  background-color: #070b14;
+  background-color: var(--surface);
+  color: var(--fg);
 }
 html.dark html {
-  background-color: #070b14;
+  background-color: var(--surface);
+  color-scheme: dark;
 }
 
 /* Glowing Neon Elements */

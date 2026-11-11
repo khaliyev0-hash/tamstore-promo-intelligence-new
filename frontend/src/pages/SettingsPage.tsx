@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useData } from '../context/DataContext';
+import { getCampaignDisplayName } from '../utils/campaignUtils';
 import { 
   Settings, 
   Save, 
@@ -163,7 +164,7 @@ export const SettingsPage: React.FC = () => {
               >
                 {safeCampaigns.map((c) => {
                   const dateRangeStr = c.beg_date && c.end_date ? `${formatShortDate(c.beg_date)}–${formatDate(c.end_date)}` : '';
-                  const displayName = (!c.insert_name || c.insert_name.toLowerCase() === 'test1') ? '15-28 Promo' : c.insert_name;
+                  const displayName = getCampaignDisplayName(c.insert_name, c.beg_date, c.end_date);
                   return (
                     <option key={c.id} value={c.id}>
                       {displayName} {dateRangeStr ? `(${dateRangeStr})` : ''} {c.is_latest ? '• Ən son yüklənən' : ''}

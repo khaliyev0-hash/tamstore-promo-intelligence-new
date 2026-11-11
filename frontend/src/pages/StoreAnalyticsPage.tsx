@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useData } from '../context/DataContext';
 import { Store } from 'lucide-react';
+import { isStoreMatchGlobalFilters } from '../utils/filterUtils';
 import { SortableHeader } from '../components/common/SortableHeader';
 import { Sparkline, generateDeterministicSparkline } from '../components/common/Sparkline';
 
@@ -16,9 +17,7 @@ export const StoreAnalyticsPage: React.FC = () => {
   const { store_performances } = data;
 
   const filteredStores = store_performances.filter((s) => {
-    if (filters.selectedStore && s.store !== filters.selectedStore) return false;
-    if (filters.selectedArea && filters.selectedArea !== 'ALL' && s.area !== filters.selectedArea) return false;
-    if (filters.selectedSubArea && filters.selectedSubArea !== 'ALL' && s.sub_area !== filters.selectedSubArea) return false;
+    if (!isStoreMatchGlobalFilters(s, filters)) return false;
     if (filters.searchQuery && !s.store.toLowerCase().includes(filters.searchQuery.toLowerCase())) return false;
     return true;
   });

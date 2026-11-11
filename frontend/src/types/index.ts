@@ -60,6 +60,10 @@ export interface ColumnMapping {
   family_col?: string;
   area_col?: string;
   sub_area_col?: string;
+  origin_col?: string;
+  insert_format_col?: string;
+  format_col?: string;
+  status_col?: string;
   daily_stock_cols: string[];
 }
 
@@ -135,6 +139,8 @@ export interface StorePerformance {
   store: string;
   area?: string;
   sub_area?: string;
+  format?: string;
+  status?: string;
   product_count: number;
   total_fc: number;
   total_fc_azn?: number;
@@ -156,6 +162,9 @@ export interface ProductPerformance {
   code: string;
   name: string;
   store_count: number;
+  excel_store_count?: number;
+  active_store_count?: number;
+  passive_store_count?: number;
   total_fc: number;
   total_fc_azn?: number;
   total_sale: number;
@@ -173,6 +182,13 @@ export interface ProductPerformance {
   category?: string;
   sub_category?: string;
   family?: string;
+  origin?: string;
+  insert_format?: string;
+  status?: string;
+  supply_type?: string;
+  primary_supply_type?: string;
+  tedaruk_tipi?: string;
+  tedaruk_tipi_raw?: number;
   abc_class: string;
   xyz_class: string;
   health_score: number;
@@ -271,21 +287,42 @@ export interface AnalyticsResponse {
   areas?: string[];
   families?: string[];
   sub_areas?: string[];
+  origins?: string[];
+  insert_formats?: string[];
+  formats?: string[];
+  statuses?: string[];
 }
 
 export interface GlobalFilterState {
   searchQuery: string;
   selectedStore: string;
+  selectedStores?: string[];
   selectedProduct: string;
+  selectedProducts?: string[];
   selectedCategory: string;
+  selectedCategories?: string[];
   selectedArea: string;
+  selectedAreas?: string[];
   selectedFamily?: string;
+  selectedFamilies?: string[];
   selectedSubArea?: string;
+  selectedSubAreas?: string[];
+  selectedOrigin?: string;
+  selectedOrigins?: string[];
+  selectedInsertFormat?: string;
+  selectedInsertFormats?: string[];
+  selectedFormat?: string;
+  selectedFormats?: string[];
+  selectedStatus?: string;
+  selectedStatuses?: string[];
+  selectedSupplyType?: string;
+  selectedSupplyTypes?: string[];
   achievementStatus: string;
   stockStatus: string;
   abcClass: string;
   dateRange: string;
   promoType: string;
+  selectedPromoTypes?: string[];
 }
 
 export interface PromoUpliftItem {

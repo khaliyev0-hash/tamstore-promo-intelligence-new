@@ -8,7 +8,8 @@
     "lint": "oxlint",
     "test": "node scripts/verify_hooks.mjs",
     "test:hooks": "node scripts/verify_hooks.mjs",
-    "build": "oxlint && tsc -b && vite build",
+    "test:theme": "node ../scripts/check_theme_tokens.mjs",
+    "build": "node ../scripts/check_theme_tokens.mjs && oxlint && tsc -b && vite build",
     "preview": "vite preview"
   },
   "dependencies": {

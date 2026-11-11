@@ -1,8 +1,24 @@
-# TAMSTORE Promo Intelligence - Parquet Sales History
+# TAMSTORE Promo Intelligence
 
-High-performance, local, incrementally updatable Parquet dataset extracted from SQL Server (`fnc_TS_SALES_REPORT_FOR_PLANNING`).
+TamStore Promosiya, Stok və Proqnoz Təhlili Platforması (FastAPI + React Vite).
 
-## Extraction Commands
+## Platformanı İşə Salmaq (Quick Start)
+
+Windows mühitində tətbiqi işə salmaq üçün hazır skriptlərdən istifadə edə bilərsiniz:
+
+- **`START.bat`** (və ya `run.bat`): Həm FastAPI Backend (port 8000), həm də React Frontend (port 5173) serverlərini avtomatik işə salır və brauzerdə açır.
+- **`STOP.bat`**: Bütün aktiv və ya fonda ilişib qalmış serverləri təhlükəsiz dayandırır və 8000/5173 portlarını azad edir.
+- **`RESTART.bat`**: Serverləri təmizləyib dərhal yenidən başladır.
+- **`start.ps1`**: PowerShell istifadəçiləri üçün alternativ başlatma skripti.
+
+Terminaldan əl ilə işə salmaq üçün:
+```bash
+py -3 run_app.py
+```
+
+---
+
+## Parquet Sales History & Extraction Commands
 
 ### 1. Extract Last 3 Months (Default)
 Extracts daily sales history for the last 3 months up to yesterday:

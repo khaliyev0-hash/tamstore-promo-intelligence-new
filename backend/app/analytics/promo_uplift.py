@@ -82,9 +82,7 @@ def fetch_pre_promo_14d_sales(
         query = f"""
             SELECT 
                 CAST(MEHSUL_KODU AS VARCHAR(50)) AS item_code,
-                SUM(CAST(MIQDARI AS FLOAT)) AS total_sales_qty,
-                SUM(CAST(INSERT_MIQDARI AS FLOAT)) AS insert_sales_qty,
-                SUM(CAST(MIQDARI AS FLOAT)) - SUM(CAST(INSERT_MIQDARI AS FLOAT)) AS normal_sales_qty
+                SUM(CAST(MIQDARI AS FLOAT)) AS normal_sales_qty
             FROM dbo.fnc_TS_SALES_REPORT_FOR_PLANNING(?, ?)
             {where_str}
             GROUP BY MEHSUL_KODU
@@ -94,25 +92,13 @@ def fetch_pre_promo_14d_sales(
             cursor = conn.cursor()
             cursor.execute(query, params)
             for row in cursor.fetchall():
-                raw_code, tot_qty, ins_qty, diff_qty = row
+                raw_code, tot_qty = row
                 c_norm = normalize_item_code(raw_code)
                 if c_norm and c_norm in result:
-                    tot = float(tot_qty) if tot_qty is not None else 0.0
-                    ins = float(ins_qty) if ins_qty is not None else 0.0
-                    norm = float(diff_qty) if diff_qty is not None else (tot - ins)
-
-                    # Back-to-back promo detection:
-                    # If SKU was on active flyer/insert in pre-promo period (>50% insert or diff <= 2 while tot > 10),
-                    # subtracting insert_sales wipes out the true volume baseline (e.g. 1 unit out of 2476).
-                    # In that case, tot represents the actual pre-promo run rate volume.
-                    if tot > 0 and (ins <= 0.0 or norm >= 0.5 * tot):
-                        effective_val = norm
-                    elif tot > 0:
-                        effective_val = tot
-                    else:
-                        effective_val = max(0.0, norm)
-
-                    result[c_norm] = max(0.0, round(effective_val, 2))
+                    # Business rule: All sales on or before the promo start date (up to and including the 14th)
+                    # are treated as normal baseline sales.
+                    val = float(tot_qty) if tot_qty is not None else 0.0
+                    result[c_norm] = max(0.0, round(val, 2))
         db_success = True
     except Exception as e:
         logger.warning("Pre-promo 14d DB query failed (%s), attempting Parquet fallback", e)

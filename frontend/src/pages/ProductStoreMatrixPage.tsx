@@ -5,7 +5,7 @@ import {
   TrendingUp, ShoppingBag, Box, AlertTriangle, CheckCircle2, Sparkles, RefreshCw, Layers
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { isPromoTypeMatch } from '../utils/filterUtils';
+import { isPromoTypeMatch, isProductMatchGlobalFilters, isStoreMatchGlobalFilters } from '../utils/filterUtils';
 
 export const ProductStoreMatrixPage: React.FC = () => {
   const { data, setSelectedProductDetail, filters } = useData();
@@ -80,54 +80,24 @@ export const ProductStoreMatrixPage: React.FC = () => {
   // Stores filtered by global Area, Sub Area, and Store filters
   const filteredStores: string[] = useMemo(() => {
     let list: string[] = matrixData?.stores || [];
-    if (filters?.selectedStore) {
-      list = list.filter((s) => s === filters.selectedStore);
-    }
-    if (filters?.selectedArea && filters.selectedArea !== 'ALL') {
-      const areaStores = new Set(
-        (data?.store_performances || [])
-          .filter((s) => s.area === filters.selectedArea)
-          .map((s) => s.store)
-      );
-      list = list.filter((s) => areaStores.has(s));
-    }
-    if (filters?.selectedSubArea && filters.selectedSubArea !== 'ALL') {
-      const subAreaStores = new Set(
-        (data?.store_performances || [])
-          .filter((s) => s.sub_area === filters.selectedSubArea)
-          .map((s) => s.store)
-      );
-      list = list.filter((s) => subAreaStores.has(s));
-    }
-    return list;
-  }, [matrixData?.stores, filters?.selectedStore, filters?.selectedArea, filters?.selectedSubArea, data?.store_performances]);
+    const storeMap = new Map<string, any>();
+    (data?.store_performances || []).forEach((s) => storeMap.set(s.store, s));
+
+    return list.filter((storeId) => {
+      const storeObj = storeMap.get(storeId) || { store: storeId };
+      return isStoreMatchGlobalFilters(storeObj, filters);
+    });
+  }, [matrixData?.stores, filters, data?.store_performances]);
 
   // Client-side search and global filtering (Category, Family, Product, Promo Type)
   const filteredProducts = useMemo(() => {
     if (!matrixData?.products) return [];
     let list = matrixData.products;
 
-    if (filters?.selectedProduct) {
-      list = list.filter((p: any) => p.code === filters.selectedProduct);
-    }
-
-    if (filters?.selectedCategory && filters.selectedCategory !== 'ALL') {
-      list = list.filter((p: any) => p.category === filters.selectedCategory);
-    }
-
-    if (filters?.selectedFamily && filters.selectedFamily !== 'ALL') {
-      list = list.filter((p: any) => {
-        const meta = productMetaMap.get(p.code);
-        return (p.family === filters.selectedFamily) || (meta && meta.family === filters.selectedFamily);
-      });
-    }
-
-    if (filters?.promoType && filters.promoType !== 'ALL') {
-      list = list.filter((p: any) => {
-        const meta = productMetaMap.get(p.code);
-        return isPromoTypeMatch(meta || p, filters.promoType);
-      });
-    }
+    list = list.filter((p: any) => {
+      const meta = productMetaMap.get(p.code) || p;
+      return isProductMatchGlobalFilters(meta, filters);
+    });
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
@@ -460,6 +430,8 @@ export const ProductStoreMatrixPage: React.FC = () => {
                       const cell = cellMap.get(`${st}___${p.code}`);
                       const val = cell?.value ?? 0;
                       const status = cell?.status ?? "NEUTRAL";
+                      const isOrderClosed = cell?.order_status === 'Passiv' || cell?.order_status === 'XEYR';
+                      const orderStatusLabel = isOrderClosed ? '🔴 Sifarişə Qapalı (Xeyr / Passiv)' : '🟢 Sifarişə Açıq (Bəli / Aktiv)';
                       const displayVal = metric === 'achievement'
                         ? `${val}%`
                         : Number(val).toLocaleString();
@@ -469,9 +441,12 @@ export const ProductStoreMatrixPage: React.FC = () => {
                           key={st}
                           onClick={() => setSelectedProductDetail({ store: st, code: p.code })}
                           className="p-1 text-center border-r border-slate-100 dark:border-slate-800 last:border-r-0 cursor-pointer"
-                          title={`Mağaza ${st} | ${p.name} (${p.code})\n${metric}: ${displayVal}`}
+                          title={`Mağaza ${st} | ${p.name} (${p.code})\n${metric}: ${displayVal}\nSifariş Statusu: ${orderStatusLabel}`}
                         >
-                          <div className={`py-1 px-1.5 rounded-md border text-[11px] font-mono font-bold transition-transform hover:scale-105 ${getCellColor(val, status)}`}>
+                          <div className={`py-1 px-1.5 rounded-md border text-[11px] font-mono font-bold transition-transform hover:scale-105 relative ${getCellColor(val, status)}`}>
+                            {isOrderClosed && (
+                              <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-rose-500 ring-1 ring-white dark:ring-slate-900" title="Sifarişə Qapalı (Xeyr / Passiv)" />
+                            )}
                             {displayVal}
                           </div>
                         </td>

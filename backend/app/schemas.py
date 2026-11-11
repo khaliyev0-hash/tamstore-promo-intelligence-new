@@ -38,6 +38,10 @@ class ColumnMapping(BaseModel):
     family_col: Optional[str] = None
     area_col: Optional[str] = None
     sub_area_col: Optional[str] = None
+    origin_col: Optional[str] = None
+    insert_format_col: Optional[str] = None
+    format_col: Optional[str] = None
+    status_col: Optional[str] = None
     daily_stock_cols: List[str] = []
 
 class ServiceLevelColumnMapping(BaseModel):
@@ -93,6 +97,11 @@ class FactRecord(BaseModel):
     sub_category: Optional[str] = None
     area: Optional[str] = None
     sub_area: Optional[str] = None
+    origin: Optional[str] = None
+    insert_format: Optional[str] = None
+    store_format: Optional[str] = None
+    order_status: Optional[str] = None       # Sifariş statusu: Aktiv (BELI) / Passiv (XEYR)
+    excel_store_count: Optional[int] = 0
     status: str = "HEALTHY"                  # UNDER_FORECAST, BELOW_TARGET, HEALTHY, OVER_PERFORMING, STOCKOUT_LIMITED
 
 class TimelineRecord(BaseModel):
@@ -140,6 +149,8 @@ class StorePerformance(BaseModel):
     store: str
     area: Optional[str] = None
     sub_area: Optional[str] = None
+    format: Optional[str] = None
+    status: Optional[str] = None
     product_count: int
     total_fc: float
     total_fc_azn: Optional[float] = 0.0
@@ -160,6 +171,9 @@ class ProductPerformance(BaseModel):
     code: str
     name: str
     store_count: int
+    excel_store_count: Optional[int] = None
+    active_store_count: Optional[int] = 0
+    passive_store_count: Optional[int] = 0
     total_fc: float
     total_fc_azn: Optional[float] = 0.0
     total_sale: float
@@ -177,6 +191,12 @@ class ProductPerformance(BaseModel):
     category: Optional[str] = None
     sub_category: Optional[str] = None
     family: Optional[str] = None
+    origin: Optional[str] = None
+    insert_format: Optional[str] = None
+    status: Optional[str] = None
+    supply_type: Optional[str] = None
+    tedaruk_tipi: Optional[str] = None
+    tedaruk_tipi_raw: Optional[int] = None
     abc_class: str                           # "A", "B", "C"
     xyz_class: str                           # "X", "Y", "Z", "N/A"
     health_score: float
@@ -213,6 +233,7 @@ class MatrixCell(BaseModel):
     code: str
     value: float
     status: str
+    order_status: Optional[str] = "Aktiv"
 
 class ProductStoreMatrix(BaseModel):
     stores: List[str]
@@ -275,3 +296,4 @@ class AnalyticsResponse(BaseModel):
     stock_dates: List[str]
     categories: List[str] = []
     areas: List[str] = []
+    statuses: List[str] = []

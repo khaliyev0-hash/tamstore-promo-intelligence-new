@@ -142,3 +142,58 @@ def test_old_archive_without_daily_sales_returns_null(mock_fact_df):
     # ensure_complete_analytics_payload also defaults daily_sales to None
     payload = ensure_complete_analytics_payload({})
     assert payload["daily_sales"] is None
+
+def test_daily_sales_api_endpoint():
+    """Verifies that the /api/daily-sales endpoint responds with 200 and valid schema."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    with TestClient(app) as client:
+        res = client.get('/api/daily-sales')
+        assert res.status_code == 200
+        data = res.json()
+        assert isinstance(data, list)
+        if data:
+            assert "day" in data[0]
+            assert "date" in data[0]
+            assert "daily_sale" in data[0]
+            assert "cumulative_pct" in data[0]
+
+def test_daily_sales_filter_by_origin():
+    """Verifies that the /api/daily-sales?origin=Idxal endpoint filters correctly."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    with TestClient(app) as client:
+        res = client.get('/api/daily-sales?origin=Idxal')
+        assert res.status_code == 200
+        data = res.json()
+        assert isinstance(data, list)
+
+def test_origin_column_detection():
+    """Verifies that detect_columns identifies the IDXAL column correctly."""
+    from app.parser import detect_columns
+    cols = ['Mehsul_kodu', 'Mehsul_adi', 'MAGAZA', 'fc', 'başlama tarixi', 'bitmə tarixi', 'IDXAL']
+    mapping, conf = detect_columns(cols)
+    assert mapping.origin_col == 'IDXAL'
+
+def test_insert_format_column_detection():
+    """Verifies that detect_columns identifies the Insert Format and Format columns correctly."""
+    from app.parser import detect_columns
+    cols = ['Mehsul_kodu', 'Mehsul_adi', 'MAGAZA', 'fc', 'başlama tarixi', 'bitmə tarixi', 'Insert Format', 'Format']
+    mapping, conf = detect_columns(cols)
+    assert mapping.insert_format_col == 'Insert Format'
+    assert mapping.format_col == 'Format'
+
+def test_daily_sales_filter_by_insert_format():
+    """Verifies that the /api/daily-sales?insert_format=SCM endpoint filters correctly."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    with TestClient(app) as client:
+        res = client.get('/api/daily-sales?insert_format=SCM')
+        assert res.status_code == 200
+        data = res.json()
+        assert isinstance(data, list)
+
+
